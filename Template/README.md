@@ -1,0 +1,101 @@
+# Reference workbook
+
+`timeliner-planner-template.xlsx` is a ready-to-use workbook for the Deliverables Gantt
+Planner. It carries the five tabs the tool reads, a filled-in sample programme, and a
+`README` tab repeating this page inside the file.
+
+## Getting started
+
+1. **Google Sheets** — *File → Import → Upload*, then choose *Replace spreadsheet*.
+   **Excel** — just open it.
+2. Replace the sample rows with your own. Nothing needs renaming or moving.
+3. Share the sheet with the account running the planner: *Editor* to drag bars and have
+   the change written back, *Viewer* for read-only.
+4. Paste the sheet URL into the planner's **Connect** dialog.
+
+The `README` tab is ignored by the planner and can be deleted.
+
+## Tabs
+
+The tool matches tab names in lowercase and finds them under no other spelling.
+
+| Tab | Header row? | Content |
+|---|---|---|
+| `plan` | yes, row 1 | One deliverable per row, from row 2. The only mandatory tab. |
+| `stages` | **no** | Column A from **row 1**: stage names, in top-to-bottom chart order. |
+| `gates-system` | yes, row 1 | `A` = gate name, `B` = date. Red dashed line. |
+| `gates-hc` | yes, row 1 | Same shape. Purple dashed line, H/C badge. |
+| `mg-hc` | yes, row 1 | Same shape. Orange dotted line, H/C badge. |
+
+`stages` is the one tab with no header: row 1 is already data. A stage with no deliverable
+is simply not drawn. Extra tabs of your own are safe — only these five are read.
+
+## Columns of `plan`
+
+| Col | Header | Meaning |
+|---|---|---|
+| A | Ref | Your own reference. Used as the track ID only when `C` is empty. |
+| B | Title | Shown on the bar. Square brackets are stripped. |
+| C | **Track** | One chart row per distinct value. See below. |
+| D | Stage | Which band the track sits in. Fill on the track's first row; the rest inherit. |
+| E | Amount | A number: man-hours, or money when `K` says `EUR`. |
+| F | Start | A real date, or `N/A` to park the row. |
+| G | End | A real date, inclusive. |
+| H | Comment | Free text; appears in the tooltip and after the title. |
+| I | Owner | Free column, **ignored** by the planner. |
+| J | Status | Free column, **ignored** by the planner. |
+| K | Currency | `EUR` (or `euro`, `€`) marks a monetary item. Anything else, blank included, means man-hours. |
+| L | Unit | Department or team. Drives the filter chips and colours. Blank becomes `Unassigned`. |
+
+Columns can be moved if you rename the header — the planner recognises `Title/Titre`,
+`Track/ID`, `Stage/Phase`, `Amount/Montant`, `Start/Debut`, `End/Fin`, `Currency/Devise`,
+`Unit/Departement` among others. Leave the layout alone and you never have to think about it.
+
+## The four rules that matter
+
+**A track is a chart row.** Deliverables sharing a value in column `C` stack on the same
+line. Two that overlap in time are flagged as a **collision** (red, pulsing) — that is the
+point of the field: it tells you the same thread of work is booked twice.
+
+**A track belongs to exactly one stage.** The stage is taken from the first row of that
+track that declares one, and applied to all of its deliverables. Leave `D` blank on the
+follow-up rows — that is the intended use. Do not spread one track across several stages;
+give the later work its own track instead.
+
+**A row is only plotted when both dates are readable.** `N/A` or blank parks it; the count
+of skipped rows is reported when the sheet loads. Type real dates — `dd/mm/yyyy` and
+`yyyy-mm-dd` text are also understood, but real dates remove any ambiguity.
+
+**Effort is spread evenly over a deliverable's days.** That is how the monthly FTE curve and
+the per-year summary are built. The conversion is **1560 h/year = 1 FTE** (130 h/month),
+fixed in the code — not a cell you can change.
+
+## What the sample shows
+
+A fictitious product-development programme, Jan 2026 → Dec 2027: 26 rows over 5 stages,
+19 tracks and 7 units, 12 gates across the three gate tabs. It deliberately includes a
+follow-up row inheriting its stage (`TRK-01`), four `EUR` items, two zero-effort
+deliverables (hidden until the *0-Mh* toggle is on), and one parked `N/A` row. It contains
+no collision, so a clean import shows no red.
+
+Colour coding on the `plan` tab is conditional formatting, purely for your benefit in the
+spreadsheet — the planner does not read it:
+
+- amber — parked row, no usable dates
+- red — the end date precedes the start date
+- green — monetary item
+
+The `README` tab also carries a live cross-check block (totals, FTE-years, horizon)
+recomputed from `plan` with formulas, so you can confirm the numbers the planner displays.
+
+## Rebuilding
+
+`build_template.py` regenerates the workbook from scratch:
+
+```sh
+pip install openpyxl
+python3 build_template.py
+```
+
+Edit that script rather than the binary when the schema changes, so the template stays
+reviewable in git.
