@@ -7,6 +7,7 @@ Deliverables Gantt planner and scheduler, driven by a Google Sheet.
 | `Code/code.gs` | Google Apps Script backend: reads the sheet, writes date changes back. |
 | `Code/index.html` | The planner web app served by `doGet`. |
 | `Template/` | A ready-to-use reference workbook (`.xlsx`) plus the schema documentation. |
+| `CHANGELOG.md` | Everything fixed and added since the first version (in French). |
 
 ## Setup
 
