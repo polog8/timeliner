@@ -7,6 +7,10 @@ du dossier `Code` (commit `2f04b22`, `code.gs` 290 lignes + `index.html` 2015 li
 Les fonctions et la logique de fonctionnement d'origine ont été conservées — voir
 la section « Ce qui n'a pas changé » en fin de document.
 
+Le document couvre les deux séries de modifications : la reprise initiale, puis les
+retours qui ont suivi (débordement des libellés, rafraîchissement automatique,
+correction du FTE). Les ajouts de la seconde série sont signalés par **[v2]**.
+
 ---
 
 ## 1. Bugs corrigés
@@ -78,11 +82,29 @@ la section « Ce qui n'a pas changé » en fin de document.
   `updateTaskDetails` écrivaient à l'indice de ligne reçu sans contrôle.
   → Le numéro de ligne est validé et la ligne d'en-tête est refusée.
 
+- **[v2] Les filtres d'unités se réarmaient tout seuls.** Décocher toutes les
+  unités puis rafraîchir les recochait toutes : la sélection vide était
+  indistinguable d'une absence de préférence enregistrée. Bug sans conséquence
+  tant que le rafraîchissement était manuel, mais il serait devenu visible
+  toutes les 5 secondes avec le rafraîchissement automatique.
+  → Une sélection vide est désormais respectée ; seule une liste enregistrée ne
+  correspondant à aucune unité de la feuille (changement de feuille) retombe sur
+  « tout sélectionner ».
+
 ### 1.4 Cosmétique
 
 - **Classes Tailwind invalides.** `shadow-xs` (7×) et `rounded-xs` (4×) sont des
   noms Tailwind v4 alors que la page charge le CDN v3 : elles n'avaient aucun effet.
   → Remplacées par `shadow-sm` / `rounded-sm`.
+
+---
+
+### 1.5 Correction de convention
+
+- **[v2] 1 FTE vaut 1580 h/an, et non 1560.** Valeur corrigée dans le calcul de
+  la courbe FTE mensuelle, les totaux par stage, les infobulles, le panneau de
+  synthèse, la légende, l'export CSV, ainsi que dans le classeur de référence et
+  sa documentation. Le mois de référence passe de 130 h à 131,7 h.
 
 ---
 
@@ -134,6 +156,30 @@ Nouveautés (toutes absentes de la version d'origine) :
 - **Repli GViz** en lecture seule si le backend est injoignable, avec message clair
   et écriture désactivée.
 
+Ajouts de la seconde série :
+
+- **[v2] Les libellés trop longs débordent au lieu d'être coupés.** La largeur
+  d'une barre code sa durée : elle ne peut donc pas s'élargir pour accueillir son
+  texte. Le libellé est mesuré avant l'affichage ; s'il tient dans la barre il y
+  reste, sinon il est posé à côté, dans une pastille lisible sur le fond. Le côté
+  est choisi en fonction de la place réellement libre : à droite par défaut, à
+  gauche quand la droite est occupée par la barre suivante de la même track ou
+  qu'elle sortirait du canevas. Un libellé ne recouvre jamais la barre qu'il
+  décrit. Sur une track dense où aucun côté ne suffit, survoler la barre fait
+  passer son libellé au premier plan.
+- **[v2] Rafraîchissement automatique** réglable (2, 5, 10, 30 ou 60 secondes),
+  désactivé par défaut. Chaîne de `setTimeout` plutôt qu'un `setInterval` : la
+  requête suivante n'est armée qu'au retour de la précédente, donc les appels ne
+  s'empilent jamais. Un sondage est reporté pendant un glissement, pendant qu'une
+  boîte de dialogue est ouverte, pendant l'écriture d'une modification et quand
+  l'onglet est en arrière-plan. Surtout, la feuille reçue est comparée à celle
+  affichée avant tout redessin : si rien n'a bougé, rien n'est redessiné — c'est
+  ce qui rend une cadence de 5 secondes utilisable sans scintillement. L'historique
+  d'annulation survit aux sondages.
+- **[v2] Horodatage du dernier rafraîchissement** dans la barre d'état.
+- **[v2] Export CSV du plan** : les livrables actuellement affichés, avec durée,
+  effort, densité et équivalent FTE.
+
 ## 4. Template (nouveau dossier `Template/`)
 
 - `timeliner-planner-template.xlsx` : classeur de référence avec les cinq onglets
@@ -162,8 +208,8 @@ fonctionnement d'origine sont conservées :
   défini par son premier livrable.
 - La règle de collision, la coloration par densité de Mh/jour, les trois types de
   gates et leurs couleurs.
-- La conversion 1560 h/an = 1 FTE, la répartition uniforme de l'effort sur les
-  jours, la courbe FTE mensuelle.
+- La répartition uniforme de l'effort sur les jours et la courbe FTE mensuelle
+  (seule la valeur du FTE a changé, voir 1.5).
 - Les trois modes de la synthèse (par unité, par stage, détaillé) et le tableau des
   postes monétaires.
 - La molette temporelle par glissement sur l'en-tête, le mode lecture seule, le
@@ -175,6 +221,19 @@ fonctionnement d'origine sont conservées :
 
 Ce qui a été testé :
 
+- **[v2] Rafraîchissement automatique** : cadence tenue, **zéro redessin quand la
+  feuille n'a pas changé**, prise en compte d'un changement réel, report effectif
+  du sondage pendant un glissement (souris maintenue enfoncée sur une barre),
+  pendant l'ouverture d'une boîte de dialogue et en onglet caché, reprise après
+  levée des garde-fous, survie de l'historique d'annulation, et arrêt complet une
+  fois désactivé.
+- **[v2] Débordement des libellés** : mesures à quatre niveaux de zoom, en lecture
+  seule et en mode éditable, vérification qu'aucun libellé interne n'est tronqué,
+  qu'aucun libellé ne recouvre la barre qu'il décrit, et que le repli à gauche ne
+  s'active que lorsqu'il tient réellement.
+- **[v2] Exports CSV** : téléchargements réellement capturés dans le navigateur,
+  en-têtes et totaux contrôlés, respect des filtres actifs, et vérification que la
+  colonne FTE utilise bien 1580.
 - **36 tests unitaires backend** contre un simulacre de l'API Apps Script :
   analyse des dates sous tous les formats, résolution des colonnes, feuille
   étroite, permutation des dates inversées, aller-retour lecture/écriture,

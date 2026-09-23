@@ -67,7 +67,7 @@ of skipped rows is reported when the sheet loads. Type real dates — `dd/mm/yyy
 `yyyy-mm-dd` text are also understood, but real dates remove any ambiguity.
 
 **Effort is spread evenly over a deliverable's days.** That is how the monthly FTE curve and
-the per-year summary are built. The conversion is **1560 h/year = 1 FTE** (130 h/month),
+the per-year summary are built. The conversion is **1580 h/year = 1 FTE** (131.7 h/month),
 fixed in the code — not a cell you can change.
 
 ## What the sample shows

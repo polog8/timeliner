@@ -257,6 +257,49 @@
 
     .task-title { padding: 0 6px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; pointer-events: none; flex: 1; min-width: 0; }
     .task-amount { padding: 0 6px 0 0; font-size: 9px; font-weight: 800; opacity: 0.92; white-space: nowrap; pointer-events: none; flex: none; }
+
+    /* Label for a bar too narrow to hold its own text. It sits in the row next
+       to the bar rather than inside it, so the coloured area keeps encoding the
+       duration and nothing is truncated. */
+    .task-outside-label {
+      position: absolute;
+      top: 4px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 6px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #0f172a;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.55);
+      border-left-width: 3px;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+      pointer-events: none;
+      z-index: 6;
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+    }
+    .task-outside-label.anchor-left {
+      border-left-width: 1px;
+      border-right-width: 3px;
+    }
+    /* On a crowded track two labels can compete for the same gap. Hovering or
+       focusing a bar lifts its own label clear of the others. The label always
+       follows its bar in the DOM, which is what makes this selector work. */
+    .task-bar:hover + .task-outside-label,
+    .task-bar:focus + .task-outside-label {
+      z-index: 20;
+      background: #ffffff;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.25);
+    }
+    .task-outside-label .outside-amount { font-size: 9px; font-weight: 800; color: #475569; }
+    .task-outside-label.is-collision { color: #7f1d1d; border-color: #ef4444; background: rgba(254, 242, 242, 0.95); }
+    .task-outside-label.search-dim { opacity: 0.2; }
+    .task-outside-label.search-hit { box-shadow: 0 0 0 2px #f59e0b, 0 1px 3px rgba(15, 23, 42, 0.12); z-index: 7; }
     .resize-handle { width: 8px; height: 100%; cursor: ew-resize; display: flex; align-items: center; justify-content: center; opacity: 0.5; transition: opacity 0.15s; flex: none; }
     .resize-handle:hover { opacity: 1; background: rgba(255, 255, 255, 0.3); }
     .resize-handle::after { content: ''; width: 2px; height: 10px; background: currentColor; border-radius: 1px; }
@@ -330,6 +373,8 @@
       <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200">
         <div id="status-dot" class="status-dot"></div>
         <span id="status-text">Connecting…</span>
+        <span class="text-slate-300">|</span>
+        <span id="refresh-label" class="font-mono text-[10px] text-slate-500">—</span>
       </div>
 
       <button id="collision-badge" type="button" onclick="focusFirstCollision()" title="Jump to the first overlapping deliverable"
@@ -357,6 +402,22 @@
             <span>Show gates</span>
           </label>
           <div class="pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Auto-refresh</div>
+            <select id="auto-refresh-select" onchange="setAutoRefresh(this.value)" aria-label="Auto-refresh interval"
+                    class="w-full px-2 py-1 border border-slate-300 rounded text-[11px] font-semibold outline-none focus:border-blue-600">
+              <option value="0">Off</option>
+              <option value="2">Every 2 seconds</option>
+              <option value="5">Every 5 seconds</option>
+              <option value="10">Every 10 seconds</option>
+              <option value="30">Every 30 seconds</option>
+              <option value="60">Every minute</option>
+            </select>
+            <p class="text-[10px] text-slate-400 leading-snug">
+              Polling pauses while you drag, while a dialog is open and while the tab is in the
+              background. The chart is only redrawn when the sheet has actually changed.
+            </p>
+          </div>
+          <div class="pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
             <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Zoom</div>
             <div class="grid grid-cols-4 gap-1">
               <button onclick="setZoom(0.75)" class="px-1 py-1 bg-slate-100 hover:bg-slate-200 rounded text-[11px] font-bold">Year</button>
@@ -365,6 +426,11 @@
               <button onclick="zoomToFit()" class="px-1 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold">Fit</button>
             </div>
             <button onclick="scrollToToday()" class="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded text-[11px] font-bold">Jump to today</button>
+          </div>
+          <div class="pt-1.5 border-t border-slate-100">
+            <button onclick="exportPlanCsv()" class="w-full px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-bold">
+              ⬇ Export plan (CSV)
+            </button>
           </div>
         </div>
       </div>
@@ -469,7 +535,7 @@
       <div class="flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-semibold">
         <span>💡 Drag the header to spin the timeline</span>
       </div>
-      <div>Conversion: <strong>1560 h/yr = 1 FTE</strong></div>
+      <div>Conversion: <strong>1580 h/yr = 1 FTE</strong></div>
     </div>
   </div>
 
@@ -610,7 +676,7 @@
      * ================================================================ */
 
     var MS_PER_DAY = 86400000;
-    var HOURS_PER_FTE_YEAR = 1560;              // 1560 h / yr = 1 FTE
+    var HOURS_PER_FTE_YEAR = 1580;              // 1580 h / yr = 1 FTE
     var HOURS_PER_FTE_MONTH = HOURS_PER_FTE_YEAR / 12;
     var ROUNDING_EPSILON = 0.4;                 // below this a cell reads as empty
     var STORAGE_PREFIX = 'gantt_';
@@ -673,7 +739,15 @@
       canWrite: true,
       lastSummary: null,
       history: [],
-      future: []
+      future: [],
+      /* Auto-refresh. `seconds` of 0 means off. The guards below keep a poll
+         from landing in the middle of something the user is doing. */
+      autoRefreshSeconds: 0,
+      autoRefreshTimer: null,
+      fetchInFlight: false,
+      pendingWrites: 0,
+      interacting: false,
+      lastRefreshAt: null
     };
 
     /* ================================================================
@@ -824,13 +898,22 @@
      * page is opened outside Apps Script.
      */
     function callBackend(fnName, args, onSuccess, onFailure) {
+      // Every write goes through here, so this is where a poll learns that it
+      // must wait rather than read a sheet that is mid-update.
+      state.pendingWrites++;
+      var done = function (handler) {
+        return function (res) {
+          state.pendingWrites = Math.max(0, state.pendingWrites - 1);
+          if (handler) handler(res);
+        };
+      };
       if (!hasBackend()) {
-        setTimeout(function () { onSuccess({ success: true, demo: true }); }, 250);
+        setTimeout(done(onSuccess), 250, { success: true, demo: true });
         return;
       }
       var runner = google.script.run
-        .withSuccessHandler(onSuccess)
-        .withFailureHandler(onFailure || function (err) { console.error(fnName + ' failed:', err); });
+        .withSuccessHandler(done(onSuccess))
+        .withFailureHandler(done(onFailure || function (err) { console.error(fnName + ' failed:', err); }));
       runner[fnName].apply(runner, args);
     }
 
@@ -1133,19 +1216,16 @@
      * Normalising the payload
      * ---------------------------------------------------------------- */
 
-    function onDataLoaded(data) {
-      if (!data) {
-        onError(new Error('No data returned from the spreadsheet.'));
-        return;
-      }
-
-      state.stages = (data.stages || []).slice();
-      state.trackStageMap = data.trackStageMap || {};
-
+    /**
+     * Turns a backend payload into the shape the chart works with, without
+     * touching `state`. Keeping this side-effect free is what lets an
+     * automatic poll compare the incoming sheet against the current one and
+     * decide there is nothing to redraw.
+     */
+    function parsePayload(data) {
       var units = (data.units || []).slice();
-      state.tasks = (data.tasks || []).map(function (t) {
-        var start = parseDateValue(t.start);
-        var end = parseDateValue(t.end);
+
+      var tasks = (data.tasks || []).map(function (t) {
         var isEuro = /^(euro|euros|eur|€)$/i.test(String(t.currency || '').trim());
         var amount = typeof t.amount === 'number'
           ? t.amount
@@ -1163,34 +1243,31 @@
           amount: amount,
           currency: isEuro ? 'EUR' : 'MH',
           mh: isEuro ? 0 : amount,
-          start: start,
-          end: end,
+          start: parseDateValue(t.start),
+          end: parseDateValue(t.end),
           comment: t.comment || ''
         };
       }).filter(function (t) {
         return isValidDate(t.start) && isValidDate(t.end);
       });
 
-      state.units = units;
-      restoreUnitSelection();
-
-      state.yTracks = (data.yRows || []).slice();
+      var yTracks = (data.yRows || []).slice();
       // Keep tracks that only appear in the task list (defensive against a
       // partial yRows payload).
-      state.tasks.forEach(function (t) {
-        if (state.yTracks.indexOf(t.trackId) === -1) state.yTracks.push(t.trackId);
+      tasks.forEach(function (t) {
+        if (yTracks.indexOf(t.trackId) === -1) yTracks.push(t.trackId);
       });
 
       // A track's stage is whatever its first task declares.
       var trackFirstStage = {};
-      state.tasks.forEach(function (t) {
+      tasks.forEach(function (t) {
         if (!trackFirstStage[t.trackId] && t.stage) trackFirstStage[t.trackId] = t.stage;
       });
-      state.tasks.forEach(function (t) {
+      tasks.forEach(function (t) {
         if (trackFirstStage[t.trackId]) t.stage = trackFirstStage[t.trackId];
       });
 
-      state.gates = (data.gates || []).map(function (g) {
+      var gates = (data.gates || []).map(function (g) {
         return {
           rowNum: g.rowNum,
           sheetName: g.sheetName,
@@ -1201,20 +1278,199 @@
         };
       }).filter(function (g) { return isValidDate(g.date); });
 
-      state.history = [];
-      state.future = [];
-      updateHistoryButtons();
+      return {
+        tasks: tasks,
+        gates: gates,
+        yTracks: yTracks,
+        units: units,
+        stages: (data.stages || []).slice(),
+        trackStageMap: data.trackStageMap || {},
+        sheetName: data.sheetName || 'Connected sheet',
+        skippedRows: data.skippedRows || 0
+      };
+    }
 
-      setConnectedLabel(data.sheetName || 'Connected sheet');
+    /** Moves a parsed payload into `state` and redraws. */
+    function commitPayload(parsed, silent) {
+      state.stages = parsed.stages;
+      state.trackStageMap = parsed.trackStageMap;
+      state.tasks = parsed.tasks;
+      state.units = parsed.units;
+      state.yTracks = parsed.yTracks;
+      state.gates = parsed.gates;
+      restoreUnitSelection();
+
+      // An automatic poll is not a fresh load: it must not wipe the undo stack.
+      if (!silent) {
+        state.history = [];
+        state.future = [];
+        updateHistoryButtons();
+      }
+
+      setConnectedLabel(parsed.sheetName);
       populateStageOptions();
       renderUnitChips();
       calculateDateBounds();
-      renderPlanner();
-      if (state.summaryPanelOpen) renderSummaryPanel();
 
-      var suffix = data.skippedRows ? ' — ' + data.skippedRows + ' row(s) skipped (missing or invalid dates)' : '';
+      // Redrawing scrolls nothing by itself, but the canvas can change width,
+      // so the position is put back explicitly.
+      var container = $('canvas-container');
+      var scrollLeft = container ? container.scrollLeft : 0;
+      var scrollTop = container ? container.scrollTop : 0;
+      renderPlanner();
+      if (container) {
+        container.scrollLeft = scrollLeft;
+        container.scrollTop = scrollTop;
+      }
+      if (state.summaryPanelOpen) renderSummaryPanel();
+    }
+
+    function onDataLoaded(data, silent) {
+      if (!data) {
+        onError(new Error('No data returned from the spreadsheet.'));
+        return;
+      }
+      var parsed = parsePayload(data);
+      commitPayload(parsed, silent);
+
+      state.lastRefreshAt = new Date();
+      updateRefreshLabel();
       updateStatus(state.canWrite ? 'Connected' : 'Read-only preview', 'connected');
-      if (data.skippedRows) showFloatingToast('Loaded ' + state.tasks.length + ' deliverables' + suffix);
+      if (!silent && parsed.skippedRows) {
+        showFloatingToast('Loaded ' + state.tasks.length + ' deliverables — ' + parsed.skippedRows +
+          ' row(s) skipped (missing or invalid dates)');
+      }
+    }
+
+    /* ================================================================
+     * Auto-refresh
+     *
+     * A timeout chain rather than an interval: the next poll is only armed
+     * once the previous one has come back, so a slow round trip can never let
+     * requests pile up. A poll that would land mid-interaction is skipped, and
+     * one that brings back unchanged data redraws nothing at all - which is
+     * what keeps a 5-second cadence from flickering under the cursor.
+     * ================================================================ */
+
+    var AUTO_REFRESH_CHOICES = [2, 5, 10, 30, 60];
+
+    /** Cheap fingerprint of everything the chart draws, for any data set. */
+    function computeDataSignature(source) {
+      var parts = [];
+      source.tasks.forEach(function (t) {
+        parts.push(t.rowNum, t.trackId, t.stage, t.unit, t.title, t.amount, t.currency,
+                   toISO(t.start), toISO(t.end), t.comment);
+      });
+      source.gates.forEach(function (g) {
+        parts.push(g.sheetName, g.rowNum, g.name, toISO(g.date), g.type);
+      });
+      parts.push('|', source.stages.join('~'), source.yTracks.join('~'));
+      return parts.join('\u0001');
+    }
+
+    /** Reasons a scheduled poll should be postponed rather than run. */
+    function autoRefreshBlockedBy() {
+      if (document.hidden) return 'tab in background';
+      if (state.fetchInFlight) return 'a request is already running';
+      if (state.pendingWrites > 0) return 'a save is in flight';
+      if (state.interacting) return 'an edit is in progress';
+      if (isAnyModalOpen()) return 'a dialog is open';
+      return null;
+    }
+
+    function isAnyModalOpen() {
+      return ['gsheet-modal', 'task-modal'].some(function (id) {
+        var el = $(id);
+        return el && !el.classList.contains('hidden');
+      });
+    }
+
+    function setAutoRefresh(seconds) {
+      state.autoRefreshSeconds = Number(seconds) || 0;
+      storageSet('auto_refresh_seconds', state.autoRefreshSeconds);
+      if (state.autoRefreshTimer) {
+        window.clearTimeout(state.autoRefreshTimer);
+        state.autoRefreshTimer = null;
+      }
+      if (state.autoRefreshSeconds > 0) {
+        scheduleAutoRefresh();
+        showFloatingToast('Auto-refresh on — every ' + state.autoRefreshSeconds + 's');
+      }
+      updateRefreshLabel();
+    }
+
+    /** Fires the next poll almost immediately instead of after a full interval. */
+    function scheduleAutoRefreshSoon() {
+      if (state.autoRefreshTimer) window.clearTimeout(state.autoRefreshTimer);
+      state.autoRefreshTimer = window.setTimeout(runAutoRefresh, 250);
+    }
+
+    function scheduleAutoRefresh() {
+      if (state.autoRefreshTimer) window.clearTimeout(state.autoRefreshTimer);
+      if (!(state.autoRefreshSeconds > 0)) return;
+      state.autoRefreshTimer = window.setTimeout(runAutoRefresh, state.autoRefreshSeconds * 1000);
+    }
+
+    function runAutoRefresh() {
+      state.autoRefreshTimer = null;
+      if (!(state.autoRefreshSeconds > 0)) return;
+
+      if (autoRefreshBlockedBy()) {
+        scheduleAutoRefresh();
+        return;
+      }
+      if (!hasBackend() || !state.canWrite) {
+        // Demo mode and the read-only GViz fallback have nothing to poll.
+        scheduleAutoRefresh();
+        return;
+      }
+
+      state.fetchInFlight = true;
+      google.script.run
+        .withSuccessHandler(function (data) {
+          state.fetchInFlight = false;
+          applyPolledData(data);
+          scheduleAutoRefresh();
+        })
+        .withFailureHandler(function (err) {
+          state.fetchInFlight = false;
+          console.warn('Auto-refresh failed:', err);
+          updateStatus('Refresh failed', 'error');
+          scheduleAutoRefresh();
+        })
+        .getPlannerData(state.connectedSheetId);
+    }
+
+    /**
+     * Applies a polled payload. The incoming sheet is parsed and fingerprinted
+     * before anything is committed, so an unchanged sheet costs one comparison
+     * and redraws nothing - no flicker under the cursor at a 5-second cadence.
+     */
+    function applyPolledData(data) {
+      if (!data) return;
+      var parsed = parsePayload(data);
+      var changed = computeDataSignature(parsed) !== computeDataSignature(state);
+
+      state.lastRefreshAt = new Date();
+      updateRefreshLabel();
+      if (!changed) return;
+
+      commitPayload(parsed, true);
+      showFloatingToast('Sheet updated');
+    }
+
+    function updateRefreshLabel() {
+      var el = $('refresh-label');
+      if (!el) return;
+      var stamp = state.lastRefreshAt
+        ? state.lastRefreshAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : '—';
+      el.innerText = state.autoRefreshSeconds > 0
+        ? 'auto ' + state.autoRefreshSeconds + 's · ' + stamp
+        : stamp;
+      el.title = (state.autoRefreshSeconds > 0
+        ? 'Auto-refresh every ' + state.autoRefreshSeconds + ' seconds. '
+        : 'Auto-refresh is off. ') + 'Last read from the sheet at ' + stamp + '.';
     }
 
     function calculateDateBounds() {
@@ -1289,11 +1545,17 @@
     function restoreUnitSelection() {
       var saved = storageGet('selected_units', null);
       if (saved !== null) {
-        var kept = saved.split(UNIT_STORAGE_SEPARATOR).filter(function (u) {
-          return u !== '' && state.units.indexOf(u) !== -1;
-        });
+        var stored = saved.split(UNIT_STORAGE_SEPARATOR).filter(function (u) { return u !== ''; });
+        var kept = stored.filter(function (u) { return state.units.indexOf(u) !== -1; });
         if (kept.length > 0) {
           state.selectedUnits = new Set(kept);
+          return;
+        }
+        // An empty list is a deliberate "clear all" and must survive a reload;
+        // a non-empty list matching nothing belongs to another sheet, so the
+        // selection falls back to everything.
+        if (stored.length === 0) {
+          state.selectedUnits = new Set();
           return;
         }
       }
@@ -1733,6 +1995,38 @@
       });
     }
 
+    /* ----------------------------------------------------------------
+     * Text measurement.
+     *
+     * A bar's width encodes its duration, so it must never grow to fit its
+     * label. Instead the label is measured up front: it stays inside the bar
+     * when it fits, and is drawn beside the bar when it does not.
+     * ---------------------------------------------------------------- */
+
+    var TASK_FONT = '600 11px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    var AMOUNT_FONT = '800 9px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    var measureCtx = null;
+    var measureCache = {};
+
+    function measureText(text, font) {
+      var key = font + '\u0000' + text;
+      if (measureCache[key] !== undefined) return measureCache[key];
+      if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+      measureCtx.font = font;
+      var width = measureCtx.measureText(text).width;
+      measureCache[key] = width;
+      return width;
+    }
+
+    /** Fonts arrive after first paint, so re-measure once they are ready. */
+    function refreshOnFontsReady() {
+      if (!document.fonts || !document.fonts.ready) return;
+      document.fonts.ready.then(function () {
+        measureCache = {};
+        if (state.minDate) renderTasksAndTracks();
+      });
+    }
+
     /** Blue to red ramp used to colour bars by daily man-hour density. */
     function getDensityColor(ratio) {
       var stops = [
@@ -1893,13 +2187,21 @@
       label.title = 'Track ' + trackId + ' — ' + trackTasks.length + ' deliverable(s)';
       row.appendChild(label);
 
-      trackTasks.forEach(function (task) {
-        row.appendChild(buildTaskBar(task, collisions, densityRange));
+      // Sorted so each bar knows the free space on either side of it, which is
+      // where its label may go without covering a neighbour.
+      var ordered = trackTasks.slice().sort(function (a, b) { return a.start - b.start; });
+      ordered.forEach(function (task, idx) {
+        var built = buildTaskBar(task, collisions, densityRange, {
+          prev: ordered[idx - 1] || null,
+          next: ordered[idx + 1] || null
+        });
+        row.appendChild(built.bar);
+        if (built.label) row.appendChild(built.label);
       });
       return row;
     }
 
-    function buildTaskBar(task, collisions, densityRange) {
+    function buildTaskBar(task, collisions, densityRange, neighbours) {
       var duration = spanDays(task.start, task.end);
       var widthPx = duration * state.dayWidth;
       var isCollided = collisions.has(task.id);
@@ -1939,10 +2241,27 @@
         : (task.mh > 0 ? formatNumber(task.mh) + 'h' : '');
       var titleText = (isEuro ? '[EUR] ' : '') + task.title + (task.comment ? ' (' + task.comment + ')' : '');
 
-      bar.innerHTML = '<div class="resize-handle left"></div>' +
-        '<span class="task-title">' + escapeHtml(titleText) + '</span>' +
-        (amountLabel && widthPx > 110 ? '<span class="task-amount">' + escapeHtml(amountLabel) + '</span>' : '') +
-        '<div class="resize-handle right"></div>';
+      // Room left inside the bar: its two borders, the title padding, and the
+      // resize handles, which only exist outside read-only mode.
+      var titleWidth = measureText(titleText, TASK_FONT);
+      var amountWidth = amountLabel ? measureText(amountLabel, AMOUNT_FONT) + 6 : 0;
+      var innerWidth = widthPx - 2 - 12 - (state.readOnly ? 0 : 16);
+      var titleFits = titleWidth <= innerWidth;
+      var amountFits = titleFits && amountLabel && (titleWidth + amountWidth) <= innerWidth;
+
+      var outsideLabel = null;
+      if (titleFits) {
+        bar.innerHTML = '<div class="resize-handle left"></div>' +
+          '<span class="task-title">' + escapeHtml(titleText) + '</span>' +
+          (amountFits ? '<span class="task-amount">' + escapeHtml(amountLabel) + '</span>' : '') +
+          '<div class="resize-handle right"></div>';
+      } else {
+        // Too narrow: leave the bar bare and put the text beside it, where it
+        // can be read in full.
+        bar.innerHTML = '<div class="resize-handle left"></div>' +
+          '<div class="resize-handle right"></div>';
+        outsideLabel = buildOutsideLabel(task, titleText, amountLabel, widthPx, isCollided, neighbours);
+      }
 
       attachDragAndResize(bar, task);
       attachTooltip(bar, task);
@@ -1956,7 +2275,54 @@
           openTaskModal(task);
         }
       });
-      return bar;
+      return { bar: bar, label: outsideLabel };
+    }
+
+    /**
+     * Places the label of a too-narrow bar in the free space beside it: to the
+     * right by default, to the left when the right side is taken by the next
+     * bar of the same track or would run past the end of the timeline. When
+     * neither side can hold it, the wider one wins.
+     */
+    function buildOutsideLabel(task, titleText, amountLabel, barWidthPx, isCollided, neighbours) {
+      var label = document.createElement('div');
+      label.className = 'task-outside-label' + (isCollided ? ' is-collision' : '');
+      label.innerHTML = '<span>' + escapeHtml(titleText) + '</span>' +
+        (amountLabel ? '<span class="outside-amount">' + escapeHtml(amountLabel) + '</span>' : '');
+
+      var gap = 4;
+      var barLeft = dateToX(task.start);
+      var barRight = barLeft + barWidthPx;
+      var labelWidth = measureText(titleText, TASK_FONT) +
+        (amountLabel ? measureText(amountLabel, AMOUNT_FONT) + 5 : 0) + 14;
+      var canvasWidth = state.totalDays * state.dayWidth;
+
+      var prev = neighbours && neighbours.prev;
+      var next = neighbours && neighbours.next;
+      // Overlapping neighbours (a collision) leave no free space on that side.
+      var rightLimit = next ? Math.max(barRight, dateToX(next.start)) : canvasWidth;
+      var leftLimit = prev ? Math.min(barLeft, dateToX(prev.end) + state.dayWidth) : 0;
+      var rightFree = rightLimit - barRight - gap;
+      var leftFree = barLeft - leftLimit - gap;
+
+      // Left is only an option when the label genuinely fits there: clamping it
+      // to the canvas edge would drop it on top of the very bar it describes.
+      var fitsRight = labelWidth <= rightFree;
+      var fitsLeft = labelWidth <= leftFree && (barLeft - gap - labelWidth) >= 0;
+      if (fitsRight || !fitsLeft) {
+        // When neither side has room the label still goes right, reading on
+        // from its own bar rather than hiding it.
+        label.style.left = (barRight + gap) + 'px';
+      } else {
+        label.classList.add('anchor-left');
+        label.style.left = (barLeft - gap - labelWidth) + 'px';
+      }
+
+      label.style.borderLeftColor = task.currency === 'EUR' ? 'var(--euro-bg)' : (isCollided ? '#ef4444' : '#2563eb');
+      if (state.searchTerm) {
+        label.classList.add(matchesSearch(task, state.searchTerm) ? 'search-hit' : 'search-dim');
+      }
+      return label;
     }
 
     /**
@@ -2037,6 +2403,7 @@
         previous = { start: task.start, end: task.end };
 
         barEl.classList.add('dragging');
+        state.interacting = true;
         hideTooltip();
         showDragHud(e, task, task.start, task.end);
         document.addEventListener('mousemove', onMouseMove);
@@ -2085,6 +2452,7 @@
           pendingFrame = null;
         }
         barEl.classList.remove('dragging');
+        state.interacting = false;
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
         hideDragHud();
@@ -2159,6 +2527,7 @@
         startX = e.clientX;
         initialLeft = parseFloat(containerEl.style.left) || 0;
         previousDate = gate.date;
+        state.interacting = true;
         headerEl.classList.add('is-dragging');
         hideTooltip();
         document.addEventListener('mousemove', onMouseMove);
@@ -2176,6 +2545,7 @@
       function onMouseUp() {
         if (!isDragging) return;
         isDragging = false;
+        state.interacting = false;
         headerEl.classList.remove('is-dragging');
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
@@ -2237,6 +2607,7 @@
         }
         e.preventDefault();
         isDragging = true;
+        state.interacting = true;
         startX = e.clientX;
         th.style.cursor = 'grabbing';
         if (hud) {
@@ -2269,6 +2640,7 @@
       function onMouseUp(e) {
         if (!isDragging) return;
         isDragging = false;
+        state.interacting = false;
         th.style.cursor = 'grab';
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
@@ -2564,7 +2936,10 @@
       if (!state.readOnly && !state.canWrite) {
         showFloatingToast('This sheet is loaded in read-only preview mode; changes cannot be saved.', 'error');
       }
+      // The resize handles appear and disappear with this mode, which changes
+      // how much room a bar has for its label, so the bars are laid out again.
       renderGates();
+      if (state.minDate) renderTasksAndTracks();
     }
 
     function toggleWheelMenu(force) {
@@ -3189,14 +3564,46 @@
 
       pushRow('TOTAL', summary.grandYearTotals, { mh: summary.totalMh, eur: summary.totalEur });
 
-      var csv = rows.map(function (row) {
+      downloadCsv('gantt-summary-' + toISO(today()) + '.csv', toCsv(rows));
+    }
+
+    /** Exports the deliverables currently passing the filters, one row each. */
+    function exportPlanCsv() {
+      var tasks = getActiveTasks().slice().sort(function (a, b) {
+        return (a.stage || '').localeCompare(b.stage || '') ||
+               a.trackId.localeCompare(b.trackId) ||
+               (a.start - b.start);
+      });
+      if (!tasks.length) {
+        showFloatingToast('Nothing to export with the current filters.', 'error');
+        return;
+      }
+
+      var rows = [['Stage', 'Track', 'Title', 'Unit', 'Start', 'End', 'Days',
+                   'Effort (Mh)', 'Budget (EUR)', 'Mh/day', 'FTE-years', 'Comment', 'Sheet row']];
+      tasks.forEach(function (t) {
+        var days = spanDays(t.start, t.end);
+        var isEuro = t.currency === 'EUR';
+        rows.push([
+          t.stage || '', t.trackId, t.title, t.unit, toISO(t.start), toISO(t.end), days,
+          isEuro ? '' : Math.round(t.amount),
+          isEuro ? Math.round(t.amount) : '',
+          isEuro ? '' : (t.amount / days).toFixed(2),
+          isEuro ? '' : (t.amount / HOURS_PER_FTE_YEAR).toFixed(3),
+          t.comment || '', t.rowNum
+        ]);
+      });
+
+      downloadCsv('gantt-plan-' + toISO(today()) + '.csv', toCsv(rows));
+    }
+
+    function toCsv(rows) {
+      return rows.map(function (row) {
         return row.map(function (cell) {
           var str = String(cell);
           return /[",;\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
         }).join(',');
       }).join('\n');
-
-      downloadCsv('gantt-summary-' + toISO(today()) + '.csv', csv);
     }
 
     function downloadCsv(filename, csv) {
@@ -3238,6 +3645,8 @@
       state.showGates = storageGet('show_gates', '1') === '1';
       state.readOnly = storageGet('read_only', '1') === '1';
       state.summaryViewMode = storageGet('summary_view_mode', 'units');
+      var seconds = parseInt(storageGet('auto_refresh_seconds', '0'), 10);
+      state.autoRefreshSeconds = AUTO_REFRESH_CHOICES.indexOf(seconds) === -1 ? 0 : seconds;
     }
 
     function applyPreferencesToControls() {
@@ -3263,6 +3672,10 @@
 
       var sheetInput = $('sheet-url-input');
       if (sheetInput) sheetInput.value = state.connectedSheetId;
+
+      var refreshSelect = $('auto-refresh-select');
+      if (refreshSelect) refreshSelect.value = String(state.autoRefreshSeconds);
+      updateRefreshLabel();
     }
 
     function setupEventListeners() {
@@ -3336,6 +3749,14 @@
       window.addEventListener('resize', function () {
         if (state.summaryPanelOpen) renderSummaryPanel();
       });
+
+      // Coming back to the tab should show current data at once rather than
+      // after another full interval.
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && state.autoRefreshSeconds > 0 && !state.fetchInFlight) {
+          scheduleAutoRefreshSoon();
+        }
+      });
     }
 
     /** Editing is impossible over the direct-read fallback. */
@@ -3361,6 +3782,7 @@
     window.toggleViewMenu = toggleViewMenu;
     window.stepTimelineShift = stepTimelineShift;
     window.setZoom = setZoom;
+    window.setAutoRefresh = setAutoRefresh;
     window.zoomToFit = zoomToFit;
     window.scrollToToday = scrollToToday;
     window.toggleAllUnits = toggleAllUnits;
@@ -3368,6 +3790,7 @@
     window.toggleSummaryPanel = toggleSummaryPanel;
     window.setSummaryViewMode = setSummaryViewMode;
     window.exportSummaryCsv = exportSummaryCsv;
+    window.exportPlanCsv = exportPlanCsv;
     window.openGSheetModal = openGSheetModal;
     window.closeGSheetModal = closeGSheetModal;
     window.connectSheetFromModal = connectSheetFromModal;
@@ -3387,7 +3810,9 @@
       restorePreferences();
       applyPreferencesToControls();
       setupEventListeners();
+      refreshOnFontsReady();
       initPlanner();
+      if (state.autoRefreshSeconds > 0) scheduleAutoRefresh();
     }
 
     if (document.readyState === 'loading') {

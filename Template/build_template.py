@@ -200,7 +200,7 @@ notes = [
     "Dates: type them as real dates. The planner also reads dd/mm/yyyy and yyyy-mm-dd text, but real dates avoid any ambiguity.",
     "A row is only plotted when BOTH dates are readable. Everything else is skipped and reported in the status bar.",
     "Effort is spread evenly over the days of a deliverable, which is how the monthly FTE curve and the yearly summary are built.",
-    "Conversion used by the tool: 1560 h/year = 1 FTE (130 h/month). This is a fixed convention in the code, not a cell you can change here.",
+    "Conversion used by the tool: 1580 h/year = 1 FTE (131.7 h/month). This is a fixed convention in the code, not a cell you can change here.",
     "Columns can be moved if you rename the header: the planner recognises, among others, Title/Titre, Track/ID, Stage/Phase, Amount/Montant, Start/Debut, End/Fin, Currency/Devise, Unit/Departement. Leave the layout as-is and you never have to think about it.",
     "Adding extra tabs is safe - only the five named tabs are read.",
 ]
@@ -254,7 +254,7 @@ for label, formula, fmt in checks:
     elif label == "Distinct tracks plotted":
         cell.value = DISTINCT
     elif label == "Equivalent FTE-years":
-        cell.value = f"=D{check_first + 4}/1560"
+        cell.value = f"=D{check_first + 4}/1580"
     else:
         cell.value = formula
     cell.font = Font(name=FONT, bold=True, size=10, color="1D4ED8")
