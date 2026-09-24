@@ -48,10 +48,19 @@ var PLAN_DEFAULT_COLS = {
   unit: 11
 };
 
-/** Header labels (lowercase) that relocate a column. */
+/**
+ * Header labels (lowercase) that relocate a column.
+ *
+ * `ref` and `trackId` are kept strictly apart. They used to share aliases, so a
+ * sheet whose column A was headed "Ref" or "ID" had its TRACK column silently
+ * pointed at column A: an explicit track sitting in column C was ignored, and
+ * moving a deliverable wrote the new track over the reference. A track the
+ * sheet states explicitly must always win.
+ */
 var COLUMN_ALIASES = {
+  ref: ['ref', 'reference', 'id', 'item', 'code', 'no', 'n°'],
   title: ['title', 'deliverable', 'titre', 'livrable', 'name', 'nom'],
-  trackId: ['track', 'track id', 'trackid', 'id', 'ref', 'reference'],
+  trackId: ['track', 'track id', 'trackid', 'lane', 'piste', 'ligne'],
   stage: ['stage', 'phase', 'etape', 'étape', 'section'],
   amount: ['amount', 'mh', 'effort', 'montant', 'charge', 'quantity', 'qty'],
   start: ['start', 'start date', 'debut', 'début', 'date debut', 'date début'],

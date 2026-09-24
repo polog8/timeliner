@@ -826,6 +826,10 @@
       autoRefreshTimer: null,
       fetchInFlight: false,
       pendingWrites: 0,
+      /* Bumped every time a write is issued. A poll records it when the read
+         leaves and compares on the way back: if it changed, the answer
+         describes a sheet from before the edit and must be thrown away. */
+      writeEpoch: 0,
       interacting: false,
       lastRefreshAt: null
     };
@@ -978,9 +982,10 @@
      * page is opened outside Apps Script.
      */
     function callBackend(fnName, args, onSuccess, onFailure) {
-      // Every write goes through here, so this is where a poll learns that it
-      // must wait rather than read a sheet that is mid-update.
+      // Every write goes through here, so this is where a poll learns both that
+      // it must wait, and that any answer already in flight is now stale.
       state.pendingWrites++;
+      state.writeEpoch++;
       var done = function (handler) {
         return function (res) {
           state.pendingWrites = Math.max(0, state.pendingWrites - 1);
@@ -1656,9 +1661,19 @@
       }
 
       state.fetchInFlight = true;
+      var epoch = state.writeEpoch;
       google.script.run
         .withSuccessHandler(function (data) {
           state.fetchInFlight = false;
+          if (state.writeEpoch !== epoch) {
+            // Something was saved while this read was on the wire, so it shows
+            // the sheet as it was before that edit. Applying it would drop the
+            // change back where it came from; the next poll will be current.
+            state.lastRefreshAt = new Date();
+            updateRefreshLabel();
+            scheduleAutoRefreshSoon();
+            return;
+          }
           applyPolledData(data);
           scheduleAutoRefresh();
         })
@@ -2803,12 +2818,13 @@
         m.task.start = m.to.start;
         m.task.end = m.to.end;
       });
-      pushHistory({ kind: 'batch', before: before, after: after });
+      var entry = { kind: 'batch', before: before, after: after };
+      pushHistory(entry);
       closeResolveModal();
       refreshAfterEdit();
       syncBatchDatesToBackend(after.map(function (m) {
         return { rowNum: m.rowNum, start: toISO(m.start), end: toISO(m.end) };
-      }), 'Overlaps resolved');
+      }), 'Overlaps resolved', entry, before);
       resolvePlan = null;
     }
 
@@ -3002,28 +3018,31 @@
       var after = { start: newStart, end: newEnd, trackId: newTrackId, stage: targetStage };
 
       applyTaskPatch(task, after);
-      pushHistory({ kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: after });
+      var entry = { kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: after };
+      pushHistory(entry);
       refreshAfterEdit();
-      syncTaskFieldsToBackend(task, after);
+      syncTaskFieldsToBackend(task, after, entry, before);
       showFloatingToast('Moved to track ' + newTrackId +
         (targetStage && targetStage !== before.stage ? ' (stage: ' + targetStage + ')' : ''));
     }
 
     /** Commits a date change, records it for undo and pushes it to the sheet. */
     function applyTaskDates(task, newStart, newEnd, previous) {
+      var snapshot = { start: task.start, end: task.end };
       task.start = newStart;
       task.end = newEnd;
-      pushHistory({
+      var entry = {
         kind: 'task',
         rowNum: task.rowNum,
         taskId: task.id,
         before: previous,
         after: { start: newStart, end: newEnd }
-      });
+      };
+      pushHistory(entry);
       calculateDateBounds();
       renderPlanner();
       if (state.summaryPanelOpen) renderSummaryPanel();
-      syncTaskChangeToBackend(task);
+      syncTaskChangeToBackend(task, entry, snapshot);
     }
 
     function showDragHud(e, task, start, end, trackId) {
@@ -3096,17 +3115,18 @@
         }
 
         gate.date = newDate;
-        pushHistory({
+        var entry = {
           kind: 'gate',
           sheetName: gate.sheetName,
           rowNum: gate.rowNum,
           gateName: gate.name,
           before: previousDate,
           after: newDate
-        });
+        };
+        pushHistory(entry);
         calculateDateBounds();
         renderPlanner();
-        syncGateChangeToBackend(gate);
+        syncGateChangeToBackend(gate, entry, previousDate);
       }
     }
 
@@ -3224,12 +3244,16 @@
       });
       state.gates.forEach(function (g) { g.date = addDays(g.date, deltaDays); });
 
-      if (!skipHistory) pushHistory({ kind: 'shift', days: deltaDays });
+      var entry = null;
+      if (!skipHistory) {
+        entry = { kind: 'shift', days: deltaDays };
+        pushHistory(entry);
+      }
 
       calculateDateBounds();
       renderPlanner();
       if (state.summaryPanelOpen) renderSummaryPanel();
-      syncTimelineShiftToBackend(deltaDays);
+      syncTimelineShiftToBackend(deltaDays, entry);
     }
 
     /* ================================================================
@@ -3358,19 +3382,44 @@
      * Persisting to the sheet
      * ================================================================ */
 
-    function syncTaskChangeToBackend(task) {
+    /**
+     * Undoes a local change the sheet refused. Without this the chart keeps
+     * showing an edit that was never saved - it looks applied until the next
+     * reload silently puts it back, which is indistinguishable from a bug.
+     */
+    function rollbackRefusedChange(entry, restore, err) {
+      if (entry && state.history[state.history.length - 1] === entry) state.history.pop();
+      updateHistoryButtons();
+      if (restore) restore();
+      calculateDateBounds();
+      renderPlanner();
+      if (state.summaryPanelOpen) renderSummaryPanel();
+      var reason = (err && err.message) ? err.message : String(err || '');
+      showFloatingToast('The sheet refused the change, so it was undone on screen.' +
+        (reason ? ' ' + reason : ''), 'error');
+    }
+
+    /** Restores a task's fields from a snapshot taken before the change. */
+    function restoreTaskFields(task, snapshot) {
+      return function () {
+        Object.keys(snapshot).forEach(function (k) { task[k] = snapshot[k]; });
+        task.mh = task.currency === 'EUR' ? 0 : task.amount;
+      };
+    }
+
+    function syncTaskChangeToBackend(task, entry, snapshot) {
       updateStatus('Saving dates…', 'syncing');
       callBackend('updateTaskDates', [task.rowNum, toISO(task.start), toISO(task.end), state.connectedSheetId],
         function () { updateStatus('Connected', 'connected'); },
         function (err) {
           updateStatus('Save failed', 'error');
           console.error('updateTaskDates failed:', err);
-          showFloatingToast('Could not save "' + task.title + '" to the sheet.', 'error');
+          rollbackRefusedChange(entry, snapshot && restoreTaskFields(task, snapshot), err);
         });
     }
 
 
-    function syncTaskFieldsToBackend(task, form) {
+    function syncTaskFieldsToBackend(task, form, entry, snapshot) {
       updateStatus('Saving deliverable…', 'syncing');
       callBackend('updateTaskFields', [task.rowNum, {
         title: form.title, trackId: form.trackId, stage: form.stage,
@@ -3384,18 +3433,20 @@
         function (err) {
           updateStatus('Save failed', 'error');
           console.error('updateTaskFields failed:', err);
-          showFloatingToast('Could not save the deliverable to the sheet.', 'error');
+          rollbackRefusedChange(entry, snapshot && restoreTaskFields(task, snapshot), err);
         });
     }
 
-    function syncTaskRemovalToBackend(task) {
+    function syncTaskRemovalToBackend(task, entry) {
       updateStatus('Removing…', 'syncing');
       callBackend('deleteTask', [task.rowNum, state.connectedSheetId],
         function () { updateStatus('Connected', 'connected'); },
         function (err) {
           updateStatus('Remove failed', 'error');
           console.error('deleteTask failed:', err);
-          showFloatingToast('Could not park the row in the sheet.', 'error');
+          rollbackRefusedChange(entry, function () {
+            if (!findTask(task.id, task.rowNum)) state.tasks.push(task);
+          }, err);
         });
     }
 
@@ -3411,7 +3462,7 @@
         });
     }
 
-    function syncBatchDatesToBackend(updates, label) {
+    function syncBatchDatesToBackend(updates, label, entry, snapshot) {
       updateStatus('Rescheduling…', 'syncing');
       callBackend('updateTaskDatesBatch', [updates, state.connectedSheetId],
         function (res) {
@@ -3422,22 +3473,29 @@
         function (err) {
           updateStatus('Reschedule failed', 'error');
           console.error('updateTaskDatesBatch failed:', err);
-          showFloatingToast('The reschedule could not be written back to the sheet.', 'error');
+          rollbackRefusedChange(entry, snapshot && function () {
+            snapshot.forEach(function (m) {
+              var task = findTask(null, m.rowNum);
+              if (!task) return;
+              task.start = m.start;
+              task.end = m.end;
+            });
+          }, err);
         });
     }
 
-    function syncGateChangeToBackend(gate) {
+    function syncGateChangeToBackend(gate, entry, previousDate) {
       updateStatus('Saving gate…', 'syncing');
       callBackend('updateGateDate', [gate.sheetName || 'gates-system', gate.rowNum || 2, toISO(gate.date), state.connectedSheetId],
         function () { updateStatus('Connected', 'connected'); },
         function (err) {
           updateStatus('Save failed', 'error');
           console.error('updateGateDate failed:', err);
-          showFloatingToast('Could not save gate "' + gate.name + '".', 'error');
+          rollbackRefusedChange(entry, previousDate && function () { gate.date = previousDate; }, err);
         });
     }
 
-    function syncTimelineShiftToBackend(deltaDays) {
+    function syncTimelineShiftToBackend(deltaDays, entry) {
       updateStatus('Shifting dates…', 'syncing');
       callBackend('shiftAllDates', [deltaDays, state.connectedSheetId],
         function (res) {
@@ -3448,7 +3506,13 @@
         function (err) {
           updateStatus('Shift failed', 'error');
           console.error('shiftAllDates failed:', err);
-          showFloatingToast('The shift could not be written back to the sheet.', 'error');
+          rollbackRefusedChange(entry, function () {
+            state.tasks.forEach(function (t) {
+              t.start = addDays(t.start, -deltaDays);
+              t.end = addDays(t.end, -deltaDays);
+            });
+            state.gates.forEach(function (g) { g.date = addDays(g.date, -deltaDays); });
+          }, err);
         });
     }
 
@@ -3826,9 +3890,10 @@
       if (!changed) return;
 
       applyTaskPatch(task, form);
-      pushHistory({ kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: form });
+      var entry = { kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: form };
+      pushHistory(entry);
       refreshAfterEdit();
-      syncTaskFieldsToBackend(task, form);
+      syncTaskFieldsToBackend(task, form, entry, before);
     }
 
     /** Writes a field patch onto a task and keeps the derived state in step. */
@@ -3899,11 +3964,13 @@
     function removeTaskFromChart(task, record) {
       var snapshot = { start: task.start, end: task.end };
       state.tasks = state.tasks.filter(function (t) { return t !== task; });
+      var entry = null;
       if (record) {
-        pushHistory({ kind: 'remove', taskId: task.id, rowNum: task.rowNum, task: task, dates: snapshot });
+        entry = { kind: 'remove', taskId: task.id, rowNum: task.rowNum, task: task, dates: snapshot };
+        pushHistory(entry);
       }
       refreshAfterEdit();
-      syncTaskRemovalToBackend(task);
+      syncTaskRemovalToBackend(task, entry);
       showFloatingToast('“' + task.title + '” removed from the chart — its row is kept in the sheet');
     }
 

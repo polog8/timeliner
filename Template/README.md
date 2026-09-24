@@ -55,6 +55,13 @@ Columns can be moved if you rename the header — the planner recognises `Title/
 
 ## The four rules that matter
 
+**A track stated in column `C` always wins.** Only a deliverable that has no track
+of its own gets one derived: first from its `Ref` in column `A`, and failing that
+from its row position (`Track_1`, `Track_2`…). Those derived names are what chain
+deliverables together when the column is left empty; the moment you type a track,
+that is where the deliverable sits, and dragging it onto another track writes the
+new one back into column `C`.
+
 **A track is a chart row.** Deliverables sharing a value in column `C` stack on the same
 line. Two that overlap in time are flagged as a **collision** (red, pulsing) — that is the
 point of the field: it tells you the same thread of work is booked twice.

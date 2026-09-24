@@ -96,6 +96,33 @@ troisième par **[v3]**.
   rétablit le double-clic et évite aussi qu'un clic un peu tremblant décale un
   livrable d'une journée.
 
+- **[v3] Un livrable déplacé revenait à sa track d'origine — trois causes
+  distinctes, toutes corrigées.**
+  1. *Une lecture périmée écrasait la modification.* Avec le rafraîchissement
+     automatique, un sondage parti **avant** le déplacement livrait sa réponse
+     **après** : elle décrivait la feuille d'avant l'édition, et l'appliquer
+     ramenait le livrable à son ancienne track — alors que la feuille, elle,
+     contenait bien la nouvelle. Chaque écriture incrémente désormais un compteur ;
+     un sondage note sa valeur au départ et jette sa réponse si elle a changé
+     entre-temps, puis relance aussitôt une lecture à jour.
+  2. *Une écriture refusée laissait l'écran mentir.* Si la feuille refusait
+     l'enregistrement — cas courant en « execute as user accessing » avec un
+     utilisateur en lecture seule — le graphique continuait d'afficher le
+     déplacement, que le rechargement suivant annulait sans explication. Un refus
+     annule maintenant la modification à l'écran, retire l'entrée d'annulation
+     correspondante et affiche la raison renvoyée par Google.
+  3. *Une track explicite pouvait être purement ignorée.* `ref`, `reference` et
+     `id` figuraient parmi les synonymes de la colonne *track* : un en-tête
+     « Ref » ou « ID » en colonne A détournait la colonne track vers A. Un
+     `TRK-1` écrit en colonne C n'était alors jamais lu, et un déplacement
+     écrivait la nouvelle track **par-dessus la référence**. Les deux colonnes ont
+     désormais des synonymes disjoints, et la résolution ne dépend plus de l'ordre
+     des en-têtes.
+
+  La règle est maintenant explicite et vérifiée : **une track écrite dans la
+  feuille prime toujours** ; seul un livrable qui n'en a pas s'en voit dériver une,
+  depuis sa référence puis, à défaut, depuis sa position de ligne.
+
 - **[v2] Les filtres d'unités se réarmaient tout seuls.** Décocher toutes les
   unités puis rafraîchir les recochait toutes : la sélection vide était
   indistinguable d'une absence de préférence enregistrée. Bug sans conséquence
@@ -316,6 +343,14 @@ Ce qui a été testé :
   la capacité (lignes invalides écartées, intervalles cumulés), capture et relecture
   de la référence, et non-contamination de la référence par les modifications
   ultérieures.
+- **[v3] Test bout en bout** : la vraie interface branchée sur le vrai `code.gs`
+  au-dessus d'un simulacre de feuille, pour quatre formes de feuille (track
+  renseignée, track vide avec référence, track explicite sans en-tête reconnu,
+  aucune des deux) — déplacement puis rechargement, la track tient dans les quatre.
+  Deux tests dédiés reproduisent la lecture périmée et l'écriture refusée.
+  Au passage, ce travail a révélé que mes simulacres précédents partageaient un
+  unique gestionnaire de succès là où `google.script.run` en renvoie un neuf à
+  chaque appel ; corrigé, c'est ce qui a rendu la course reproductible.
 - **[v3] Tests navigateur** : édition du montant/devise/unité, création, validation
   des saisies, suppression douce et son annulation, glissement vertical avec mise en
   évidence de la ligne cible et héritage du stage, non-régression du glissement
