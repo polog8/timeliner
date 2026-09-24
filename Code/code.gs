@@ -22,7 +22,9 @@ var SHEET_NAMES = {
   STAGES: 'stages',
   GATES_SYSTEM: 'gates-system',
   GATES_HC: 'gates-hc',
-  MG_HC: 'mg-hc'
+  MG_HC: 'mg-hc',
+  CAPACITY: 'capacity',
+  BASELINE: 'baseline'
 };
 
 /** Gate tabs, in render order, with the type/flag the UI expects. */
@@ -198,6 +200,8 @@ function getPlannerData(sheetIdOrUrl) {
     stages: stages,
     units: [],
     trackStageMap: {},
+    capacity: readCapacity_(ss),
+    baseline: readBaseline_(ss),
     skippedRows: 0,
     sheetName: ss.getName(),
     sheetId: ss.getId()
@@ -293,10 +297,141 @@ function getPlannerData(sheetIdOrUrl) {
     stages: stages,
     units: units,
     trackStageMap: trackStageMap,
+    capacity: readCapacity_(ss),
+    baseline: readBaseline_(ss),
     skippedRows: skippedRows,
     sheetName: ss.getName(),
     sheetId: ss.getId()
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Capacity                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Reads the optional `capacity` tab: how many people a unit actually has,
+ * as intervals rather than a month grid, so a ramp-up needs one row and not
+ * twelve. Row 1 is a header; A = unit, B = from, C = to, D = FTE.
+ *
+ * Intervals for one unit are additive, which is how a baseline team plus a
+ * temporary reinforcement is expressed.
+ */
+function readCapacity_(ss) {
+  var sheet = ss.getSheetByName(SHEET_NAMES.CAPACITY);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var values = readBlock_(sheet, 2, 1, sheet.getLastRow() - 1, 4);
+  var out = [];
+  values.forEach(function (row) {
+    var unit = cleanString_(row[0]);
+    var from = parseDateVal(row[1]);
+    var to = parseDateVal(row[2]);
+    var fte = toNumber_(row[3]);
+    if (unit === '' || !from || !to || !(fte > 0)) return;
+    if (to.getTime() < from.getTime()) {
+      var swap = from; from = to; to = swap;
+    }
+    out.push({ unit: unit, from: formatDateISO(from), to: formatDateISO(to), fte: fte });
+  });
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Baseline                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Reads the optional `baseline` tab: the plan as it was committed, so drift
+ * can be measured against it. Written by saveBaseline().
+ * Row 1 is a header; A = plan row, B = track, C = title, D = start, E = end,
+ * F = amount, G = captured at.
+ */
+function readBaseline_(ss) {
+  var sheet = ss.getSheetByName(SHEET_NAMES.BASELINE);
+  if (!sheet || sheet.getLastRow() < 2) return { capturedAt: '', items: [] };
+  var values = readBlock_(sheet, 2, 1, sheet.getLastRow() - 1, 7);
+  var items = [];
+  var capturedAt = '';
+  values.forEach(function (row) {
+    var rowNum = Math.round(toNumber_(row[0]));
+    var start = parseDateVal(row[3]);
+    var end = parseDateVal(row[4]);
+    if (!(rowNum >= 2) || !start || !end) return;
+    if (capturedAt === '') {
+      var stamp = parseDateVal(row[6]);
+      if (stamp) capturedAt = formatDateISO(stamp);
+    }
+    items.push({
+      rowNum: rowNum,
+      trackId: cleanString_(row[1]),
+      title: cleanString_(row[2]),
+      start: formatDateISO(start),
+      end: formatDateISO(end),
+      amount: toNumber_(row[5])
+    });
+  });
+  return { capturedAt: capturedAt, items: items };
+}
+
+/**
+ * Freezes the current plan into the `baseline` tab, creating it when missing.
+ * Only dated rows are captured, since only those are drawn.
+ */
+function saveBaseline(sheetIdOrUrl) {
+  var ss = getSpreadsheet(sheetIdOrUrl);
+  var planSheet = requirePlanSheet_(ss);
+  var cols = resolvePlanColumns_(planSheet);
+  var lastRow = planSheet.getLastRow();
+  if (lastRow < 2) throw new Error('Nothing to capture: the plan sheet is empty.');
+
+  var neededCols = 1;
+  for (var key in cols) {
+    if (cols.hasOwnProperty(key)) neededCols = Math.max(neededCols, cols[key] + 1);
+  }
+  var planData = readBlock_(planSheet, 2, 1, lastRow - 1, neededCols);
+  var stamp = atMidnight_(new Date());
+  var rows = [];
+
+  planData.forEach(function (row, index) {
+    var start = parseDateVal(pick_(row, cols.start));
+    var end = parseDateVal(pick_(row, cols.end));
+    if (!start || !end) return;
+    if (end.getTime() < start.getTime()) { var sw = start; start = end; end = sw; }
+    var rawId = pick_(row, cols.trackId) || pick_(row, cols.ref);
+    rows.push([
+      index + 2,
+      cleanString_(rawId),
+      cleanString_(pick_(row, cols.title)),
+      start,
+      end,
+      toNumber_(pick_(row, cols.amount)),
+      stamp
+    ]);
+  });
+
+  var sheet = ss.getSheetByName(SHEET_NAMES.BASELINE);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAMES.BASELINE);
+  sheet.clear();
+  sheet.getRange(1, 1, 1, 7).setValues([['Plan row', 'Track', 'Title', 'Start', 'End', 'Amount', 'Captured at']]);
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, 7).setValues(rows);
+    sheet.getRange(2, 4, rows.length, 2).setNumberFormat('yyyy-mm-dd');
+    sheet.getRange(2, 7, rows.length, 1).setNumberFormat('yyyy-mm-dd');
+  }
+  SpreadsheetApp.flush();
+  return { success: true, count: rows.length, capturedAt: formatDateISO(stamp) };
+}
+
+/** Removes the baseline so the chart stops drawing drift. */
+function clearBaseline(sheetIdOrUrl) {
+  var ss = getSpreadsheet(sheetIdOrUrl);
+  var sheet = ss.getSheetByName(SHEET_NAMES.BASELINE);
+  if (sheet) {
+    sheet.clear();
+    sheet.getRange(1, 1, 1, 7).setValues([['Plan row', 'Track', 'Title', 'Start', 'End', 'Amount', 'Captured at']]);
+    SpreadsheetApp.flush();
+  }
+  return { success: true };
 }
 
 function readStages_(ss) {
@@ -420,28 +555,180 @@ function updateGateDate(sheetName, rowNum, dateStr, sheetIdOrUrl) {
  * untouched, so the UI can send a partial patch.
  */
 function updateTaskDetails(rowNum, title, trackId, stage, startStr, endStr, comment, sheetIdOrUrl) {
+  return updateTaskFields(rowNum, {
+    title: title,
+    trackId: trackId,
+    stage: stage,
+    start: startStr,
+    end: endStr,
+    comment: comment
+  }, sheetIdOrUrl);
+}
+
+/**
+ * Writes an arbitrary set of fields of one deliverable. `fields` keys are the
+ * logical column names (title, trackId, stage, amount, start, end, comment,
+ * currency, unit); anything absent is left untouched.
+ *
+ * Cells are written in one batched range rather than one call per field, so a
+ * full edit costs a single round trip.
+ */
+function updateTaskFields(rowNum, fields, sheetIdOrUrl) {
   var ss = getSpreadsheet(sheetIdOrUrl);
   var planSheet = requirePlanSheet_(ss);
   var row = requirePlanRow_(planSheet, rowNum);
   var cols = resolvePlanColumns_(planSheet);
+  var maxCols = planSheet.getMaxColumns();
+  var patch = fields || {};
 
-  var writes = [
-    { idx: cols.title, value: title, isDate: false },
-    { idx: cols.trackId, value: trackId, isDate: false },
-    { idx: cols.stage, value: stage, isDate: false },
-    { idx: cols.start, value: startStr, isDate: true },
-    { idx: cols.end, value: endStr, isDate: true },
-    { idx: cols.comment, value: comment, isDate: false }
-  ];
+  var DATE_FIELDS = { start: true, end: true };
+  var NUMBER_FIELDS = { amount: true };
+  var targets = [];
 
-  writes.forEach(function (w) {
-    if (w.value === undefined || w.value === null) return;
-    if (w.idx + 1 > planSheet.getMaxColumns()) return;
-    planSheet.getRange(row, w.idx + 1).setValue(w.isDate ? coerceDateForCell_(w.value) : w.value);
+  Object.keys(patch).forEach(function (key) {
+    if (!cols.hasOwnProperty(key)) return;
+    if (patch[key] === undefined || patch[key] === null) return;
+    var col = cols[key] + 1;
+    if (col > maxCols) return;
+    var value = patch[key];
+    if (DATE_FIELDS[key]) {
+      // 'N/A' is how the planner parks a row, so it must survive as text.
+      value = isBlankOrNA_(value) ? 'N/A' : coerceDateForCell_(value);
+    } else if (NUMBER_FIELDS[key]) {
+      value = toNumber_(value);
+    }
+    targets.push({ col: col, value: value });
   });
+
+  if (!targets.length) return { success: true, rowNum: row, written: 0 };
+
+  var minCol = targets[0].col;
+  var maxCol = targets[0].col;
+  targets.forEach(function (t) {
+    minCol = Math.min(minCol, t.col);
+    maxCol = Math.max(maxCol, t.col);
+  });
+
+  var range = planSheet.getRange(row, minCol, 1, maxCol - minCol + 1);
+  var values = range.getValues();
+  targets.forEach(function (t) { values[0][t.col - minCol] = t.value; });
+  range.setValues(values);
+
+  SpreadsheetApp.flush();
+  return { success: true, rowNum: row, written: targets.length };
+}
+
+/**
+ * Appends a deliverable to the plan sheet and returns the row it landed on,
+ * which is the identity the planner uses from then on.
+ */
+function addTask(fields, sheetIdOrUrl) {
+  var ss = getSpreadsheet(sheetIdOrUrl);
+  var planSheet = requirePlanSheet_(ss);
+  var cols = resolvePlanColumns_(planSheet);
+  var patch = fields || {};
+
+  if (!parseDateVal(patch.start) || !parseDateVal(patch.end)) {
+    throw new Error('A new deliverable needs a readable start and end date.');
+  }
+
+  var width = 1;
+  for (var key in cols) {
+    if (cols.hasOwnProperty(key)) width = Math.max(width, cols[key] + 1);
+  }
+  if (planSheet.getMaxColumns() < width) {
+    planSheet.insertColumnsAfter(planSheet.getMaxColumns(), width - planSheet.getMaxColumns());
+  }
+
+  var row = planSheet.getLastRow() + 1;
+  if (row < 2) row = 2;
+  if (row > planSheet.getMaxRows()) {
+    planSheet.insertRowsAfter(planSheet.getMaxRows(), row - planSheet.getMaxRows());
+  }
+
+  var blank = [];
+  for (var i = 0; i < width; i++) blank.push('');
+  planSheet.getRange(row, 1, 1, width).setValues([blank]);
+
+  updateTaskFields(row, patch, sheetIdOrUrl);
+  if (cols.start + 1 <= planSheet.getMaxColumns()) {
+    planSheet.getRange(row, cols.start + 1, 1, 2).setNumberFormat('yyyy-mm-dd');
+  }
 
   SpreadsheetApp.flush();
   return { success: true, rowNum: row };
+}
+
+/**
+ * Soft delete: the row stays, its dates become 'N/A'. The planner already
+ * treats that as "parked", so the deliverable leaves the chart while its
+ * title, effort and comment survive - and no row number shifts, which would
+ * otherwise invalidate every identity the open clients hold.
+ */
+function deleteTask(rowNum, sheetIdOrUrl) {
+  var ss = getSpreadsheet(sheetIdOrUrl);
+  var planSheet = requirePlanSheet_(ss);
+  var row = requirePlanRow_(planSheet, rowNum);
+  var cols = resolvePlanColumns_(planSheet);
+  var maxCols = planSheet.getMaxColumns();
+
+  if (cols.start + 1 <= maxCols) planSheet.getRange(row, cols.start + 1).setValue('N/A');
+  if (cols.end + 1 <= maxCols) planSheet.getRange(row, cols.end + 1).setValue('N/A');
+
+  SpreadsheetApp.flush();
+  return { success: true, rowNum: row };
+}
+
+/**
+ * Applies many date changes at once. Used by the collision resolver, where a
+ * cascade can move a dozen deliverables: one call instead of a dozen keeps it
+ * inside the execution quota and makes the whole move atomic from the
+ * client's point of view.
+ */
+function updateTaskDatesBatch(updates, sheetIdOrUrl) {
+  var list = updates || [];
+  if (!list.length) return { success: true, count: 0 };
+
+  var ss = getSpreadsheet(sheetIdOrUrl);
+  var planSheet = requirePlanSheet_(ss);
+  var cols = resolvePlanColumns_(planSheet);
+  var maxCols = planSheet.getMaxColumns();
+  var startCol = Math.min(cols.start, cols.end) + 1;
+  var endCol = Math.max(cols.start, cols.end) + 1;
+  if (startCol > maxCols) throw new Error('The plan sheet has no date columns.');
+
+  var width = Math.min(endCol - startCol + 1, maxCols - startCol + 1);
+  var startIdx = cols.start + 1 - startCol;
+  var endIdx = cols.end + 1 - startCol;
+  var count = 0;
+
+  // One contiguous read-modify-write over the affected span beats one call per
+  // row whenever the rows are close together, which a cascade's rows are.
+  var rows = list.map(function (u) { return Math.round(toNumber_(u.rowNum)); })
+                 .filter(function (r) { return r >= 2 && r <= planSheet.getMaxRows(); });
+  if (!rows.length) return { success: true, count: 0 };
+
+  var minRow = Math.min.apply(null, rows);
+  var maxRow = Math.max.apply(null, rows);
+  var range = planSheet.getRange(minRow, startCol, maxRow - minRow + 1, width);
+  var values = range.getValues();
+
+  list.forEach(function (u) {
+    var row = Math.round(toNumber_(u.rowNum));
+    if (!(row >= minRow && row <= maxRow)) return;
+    var i = row - minRow;
+    if (u.start !== undefined && startIdx >= 0 && startIdx < width) {
+      values[i][startIdx] = coerceDateForCell_(u.start);
+    }
+    if (u.end !== undefined && endIdx >= 0 && endIdx < width) {
+      values[i][endIdx] = coerceDateForCell_(u.end);
+    }
+    count++;
+  });
+
+  range.setValues(values);
+  SpreadsheetApp.flush();
+  return { success: true, count: count };
 }
 
 function updateTaskDates(rowNum, startStr, endStr, sheetIdOrUrl) {

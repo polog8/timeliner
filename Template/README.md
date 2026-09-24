@@ -26,6 +26,8 @@ The tool matches tab names in lowercase and finds them under no other spelling.
 | `gates-system` | yes, row 1 | `A` = gate name, `B` = date. Red dashed line. |
 | `gates-hc` | yes, row 1 | Same shape. Purple dashed line, H/C badge. |
 | `mg-hc` | yes, row 1 | Same shape. Orange dotted line, H/C badge. |
+| `capacity` | yes, row 1 | **Optional.** `A` = unit, `B` = from, `C` = to, `D` = FTE. |
+| `baseline` | written by the tool | **Optional.** Filled in by “Capture baseline”. |
 
 `stages` is the one tab with no header: row 1 is already data. A stage with no deliverable
 is simply not drawn. Extra tabs of your own are safe — only these five are read.
@@ -87,6 +89,43 @@ spreadsheet — the planner does not read it:
 
 The `README` tab also carries a live cross-check block (totals, FTE-years, horizon)
 recomputed from `plan` with formulas, so you can confirm the numbers the planner displays.
+
+## The optional tabs
+
+**`capacity`** declares how many people each unit actually has, as periods rather
+than a month grid — a ramp-up is one row, not twelve. Rows for the same unit **add
+up**, so a baseline team plus a contractor is two rows. The planner compares this
+with the effort the plan demands and flags the months where a unit is short.
+
+A shortfall is judged **per unit and never netted across units**: an idle person in
+Purchasing does not cover a missing engineer in Software, so the deficits are summed
+rather than cancelled. A month is over capacity when at least one unit is short, even
+if the programme balances once every unit is added together. For the same reason the
+monthly curve shows demand only — a single capacity line would imply an
+interchangeability that does not exist.
+
+Only man-hour deliverables create demand: a line in EUR buys an outcome, it does not
+occupy anyone. Delete the tab and the feature switches off.
+
+**`baseline`** is written by the tool, not by hand. Pressing *Capture baseline* in the
+Drift view freezes today's dates and amounts here. From then on each bar shows a
+hollow ghost where it used to sit, and the Drift view lists what slipped, by how many
+days, and how much effort was added or removed.
+
+## Editing from the chart
+
+The planner writes back to the `plan` tab:
+
+- drag a bar sideways to reschedule it, or **onto another track** to move it there —
+  the target track's stage wins, since a track lives under exactly one stage;
+- double-click an empty spot on a track to create a deliverable there, on that day;
+- the editor changes title, track, stage, dates, **amount, currency and unit**;
+- *Remove from chart* blanks the two date cells only. The row, its title and its
+  amount stay in the sheet, and setting dates again brings it straight back — nothing
+  is deleted and no row number shifts under anyone else's open session;
+- when deliverables overlap on a track, the collision badge proposes a forward-only
+  cascade that clears every overlap while keeping each duration, previewed before it
+  is applied and undone in one step.
 
 ## Rebuilding
 

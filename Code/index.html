@@ -139,6 +139,10 @@
     #rows-layer { position: relative; margin-top: var(--header-height); z-index: 2; padding-bottom: 120px; }
     .grid-row { height: var(--row-height); border-bottom: 1px solid rgba(203, 213, 225, 0.4); position: relative; transition: background-color 0.15s; }
     .grid-row.is-dim { opacity: 0.45; }
+    /* Row the pointer is over while a bar is being dragged vertically. */
+    .grid-row.drop-target { box-shadow: inset 0 0 0 2px #2563eb; background-image: linear-gradient(rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.08)); }
+    body.dragging-task .task-bar { pointer-events: none; }
+    body.dragging-task .task-outside-label { opacity: 0.35; }
 
     .stage-header-row {
       height: 32px;
@@ -255,6 +259,22 @@
       100% { box-shadow: 0 0 0 0px rgba(239, 68, 68, 0); }
     }
 
+    /* Where the deliverable sat when the baseline was captured. Drawn behind
+       the live bar, hollow, so the drift is the gap between the two. */
+    .baseline-ghost {
+      position: absolute;
+      top: 2px;
+      height: 26px;
+      border: 1px dashed #64748b;
+      border-radius: 4px;
+      background: repeating-linear-gradient(45deg, rgba(100,116,139,.10), rgba(100,116,139,.10) 4px, transparent 4px, transparent 8px);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .baseline-ghost.late { border-color: #dc2626; background: repeating-linear-gradient(45deg, rgba(220,38,38,.10), rgba(220,38,38,.10) 4px, transparent 4px, transparent 8px); }
+    .baseline-ghost.early { border-color: #059669; background: repeating-linear-gradient(45deg, rgba(5,150,105,.10), rgba(5,150,105,.10) 4px, transparent 4px, transparent 8px); }
+    body:not(.show-baseline) .baseline-ghost { display: none; }
+
     .task-title { padding: 0 6px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; pointer-events: none; flex: 1; min-width: 0; }
     .task-amount { padding: 0 6px 0 0; font-size: 9px; font-weight: 800; opacity: 0.92; white-space: nowrap; pointer-events: none; flex: none; }
 
@@ -301,6 +321,11 @@
     .task-outside-label.search-dim { opacity: 0.2; }
     .task-outside-label.search-hit { box-shadow: 0 0 0 2px #f59e0b, 0 1px 3px rgba(15, 23, 42, 0.12); z-index: 7; }
     .resize-handle { width: 8px; height: 100%; cursor: ew-resize; display: flex; align-items: center; justify-content: center; opacity: 0.5; transition: opacity 0.15s; flex: none; }
+    /* On a narrow bar full-width handles would leave nowhere to grab for a
+       move, so they shrink; below ~16px they go away entirely and the whole
+       bar becomes a drag target. Resizing such a bar is done in the editor. */
+    .task-bar.narrow .resize-handle { width: 4px; }
+    .task-bar.no-handles .resize-handle { display: none; }
     .resize-handle:hover { opacity: 1; background: rgba(255, 255, 255, 0.3); }
     .resize-handle::after { content: ''; width: 2px; height: 10px; background: currentColor; border-radius: 1px; }
 
@@ -377,7 +402,7 @@
         <span id="refresh-label" class="font-mono text-[10px] text-slate-500">—</span>
       </div>
 
-      <button id="collision-badge" type="button" onclick="focusFirstCollision()" title="Jump to the first overlapping deliverable"
+      <button id="collision-badge" type="button" onclick="openResolveModal()" title="Show the overlapping deliverables and propose a fix"
               class="hidden items-center gap-1.5 bg-red-100 text-red-800 border border-red-200 px-3 py-1.5 rounded-full font-bold text-xs hover:bg-red-200 transition-colors">
         <span>⚠️</span><span id="collision-count">0</span><span>Collisions</span>
       </button>
@@ -400,6 +425,11 @@
           <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:text-slate-900">
             <input type="checkbox" id="gates-toggle" onchange="toggleGatesVisible(this.checked)" checked class="accent-blue-600 cursor-pointer">
             <span>Show gates</span>
+          </label>
+          <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:text-slate-900"
+                 title="Draw where each deliverable sat when the baseline was captured">
+            <input type="checkbox" id="baseline-toggle" onchange="toggleBaselineVisible(this.checked)" checked class="accent-blue-600 cursor-pointer">
+            <span>Show baseline drift</span>
           </label>
           <div class="pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
             <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Auto-refresh</div>
@@ -476,6 +506,8 @@
         <input type="range" id="zoom-slider" min="0.4" max="8" step="0.1" value="1.0" aria-label="Timeline zoom" class="w-16 accent-blue-600 cursor-pointer">
       </div>
 
+      <button id="add-task-btn" onclick="openNewTaskModal()" title="Add a deliverable (N). You can also double-click an empty spot on a track."
+              class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-md font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm">＋ New</button>
       <button onclick="toggleSummaryPanel(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm">📊 Summary</button>
       <button onclick="openGSheetModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm">🔗 Connect</button>
       <button onclick="initPlanner()" title="Reload from the sheet (Ctrl+R)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm">🔄 Refresh</button>
@@ -599,6 +631,27 @@
           <label for="task-end-input" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">End</label>
           <input type="date" id="task-end-input" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600">
         </div>
+        <div class="flex flex-col gap-1">
+          <label for="task-amount-input" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Amount</label>
+          <input type="number" id="task-amount-input" min="0" step="any" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label for="task-currency-input" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Measured in</label>
+          <select id="task-currency-input" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600">
+            <option value="MH">Man-hours (Mh)</option>
+            <option value="EUR">Money (EUR)</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label for="task-unit-input" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Unit</label>
+          <input type="text" id="task-unit-input" list="unit-options" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600">
+          <datalist id="unit-options"></datalist>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label for="task-track-list" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Existing tracks</label>
+          <select id="task-track-list" onchange="pickExistingTrack(this.value)"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600"></select>
+        </div>
         <div class="col-span-2 flex flex-col gap-1">
           <label for="task-comment-input" class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Comment</label>
           <input type="text" id="task-comment-input" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-600">
@@ -606,9 +659,30 @@
         <div id="task-modal-meta" class="col-span-2 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"></div>
         <div id="task-modal-error" class="col-span-2 text-red-600 font-semibold text-xs hidden"></div>
       </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button onclick="closeTaskModal()" class="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg font-semibold text-xs transition-colors">Cancel</button>
-        <button onclick="saveTaskModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm">Save to sheet</button>
+      <div class="flex justify-between items-center gap-2 pt-3 border-t border-slate-100">
+        <button id="task-delete-btn" onclick="deleteTaskFromModal()"
+                class="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-semibold text-xs transition-colors">
+          Remove from chart
+        </button>
+        <div class="flex gap-2">
+          <button onclick="closeTaskModal()" class="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg font-semibold text-xs transition-colors">Cancel</button>
+          <button id="task-save-btn" onclick="saveTaskModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm">Save to sheet</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= Collision resolver ================= -->
+  <div id="resolve-modal" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="resolve-modal-title">
+    <div class="bg-white rounded-xl w-[720px] max-w-[94vw] max-h-[85vh] flex flex-col p-5 shadow-2xl border border-slate-200">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+        <h3 id="resolve-modal-title" class="text-base font-bold text-slate-800">Resolve overlaps</h3>
+        <button onclick="closeResolveModal()" class="text-slate-400 hover:text-slate-600 font-bold px-2 py-1 rounded" aria-label="Close">✕</button>
+      </div>
+      <div id="resolve-modal-body" class="py-4 overflow-y-auto flex-1 text-xs"></div>
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100 shrink-0">
+        <button onclick="closeResolveModal()" class="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg font-semibold text-xs transition-colors">Cancel</button>
+        <button id="resolve-apply-btn" onclick="applyResolvePlan()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm">Apply</button>
       </div>
     </div>
   </div>
@@ -662,6 +736,8 @@
         <button id="view-mode-units" onclick="setSummaryViewMode('units')" class="px-2.5 py-1 rounded-md text-[11px] font-bold transition-all bg-white text-slate-900 shadow-sm">By Unit</button>
         <button id="view-mode-stages" onclick="setSummaryViewMode('stages')" class="px-2.5 py-1 rounded-md text-[11px] font-bold transition-all text-slate-600 hover:text-slate-900">By Stage</button>
         <button id="view-mode-detailed" onclick="setSummaryViewMode('detailed')" class="px-2.5 py-1 rounded-md text-[11px] font-bold transition-all text-slate-600 hover:text-slate-900">Detailed</button>
+        <button id="view-mode-capacity" onclick="setSummaryViewMode('capacity')" class="px-2.5 py-1 rounded-md text-[11px] font-bold transition-all text-slate-600 hover:text-slate-900">Capacity</button>
+        <button id="view-mode-drift" onclick="setSummaryViewMode('drift')" class="px-2.5 py-1 rounded-md text-[11px] font-bold transition-all text-slate-600 hover:text-slate-900">Drift</button>
       </div>
     </div>
     <div class="flex-1 overflow-y-auto summary-panel-scroll p-4 space-y-4" id="summary-panel-content"></div>
@@ -742,6 +818,10 @@
       future: [],
       /* Auto-refresh. `seconds` of 0 means off. The guards below keep a poll
          from landing in the middle of something the user is doing. */
+      capacity: [],
+      baseline: { capturedAt: '', items: [] },
+      baselineIndex: {},
+      showBaseline: true,
       autoRefreshSeconds: 0,
       autoRefreshTimer: null,
       fetchInFlight: false,
@@ -1278,6 +1358,32 @@
         };
       }).filter(function (g) { return isValidDate(g.date); });
 
+      var capacity = (data.capacity || []).map(function (c) {
+        return {
+          unit: String(c.unit || '').trim(),
+          from: parseDateValue(c.from),
+          to: parseDateValue(c.to),
+          fte: typeof c.fte === 'number' ? c.fte : parseAmount(c.fte)
+        };
+      }).filter(function (c) {
+        return c.unit !== '' && isValidDate(c.from) && isValidDate(c.to) && c.fte > 0;
+      });
+
+      var rawBaseline = data.baseline || {};
+      var baseline = {
+        capturedAt: rawBaseline.capturedAt || '',
+        items: (rawBaseline.items || []).map(function (b) {
+          return {
+            rowNum: b.rowNum,
+            trackId: b.trackId,
+            title: b.title,
+            start: parseDateValue(b.start),
+            end: parseDateValue(b.end),
+            amount: typeof b.amount === 'number' ? b.amount : parseAmount(b.amount)
+          };
+        }).filter(function (b) { return isValidDate(b.start) && isValidDate(b.end); })
+      };
+
       return {
         tasks: tasks,
         gates: gates,
@@ -1285,6 +1391,8 @@
         units: units,
         stages: (data.stages || []).slice(),
         trackStageMap: data.trackStageMap || {},
+        capacity: capacity,
+        baseline: baseline,
         sheetName: data.sheetName || 'Connected sheet',
         skippedRows: data.skippedRows || 0
       };
@@ -1298,6 +1406,10 @@
       state.units = parsed.units;
       state.yTracks = parsed.yTracks;
       state.gates = parsed.gates;
+      state.capacity = parsed.capacity;
+      state.baseline = parsed.baseline;
+      state.baselineIndex = {};
+      parsed.baseline.items.forEach(function (b) { state.baselineIndex[b.rowNum] = b; });
       restoreUnitSelection();
 
       // An automatic poll is not a fresh load: it must not wipe the undo stack.
@@ -1343,6 +1455,119 @@
     }
 
     /* ================================================================
+     * Capacity
+     *
+     * Effort is spread evenly over a deliverable's days, so the demand a unit
+     * places on a month is the sum of those daily slices. Capacity comes from
+     * the optional `capacity` tab as intervals, pro-rated the same way, which
+     * lets a ramp-up be one row instead of twelve. Comparing the two answers
+     * the question the chart alone cannot: is this plan staffable?
+     * ================================================================ */
+
+    function hasCapacityData() {
+      return state.capacity && state.capacity.length > 0;
+    }
+
+    /** Months of the visible range, as {key, label, start, end, days}. */
+    function monthBuckets() {
+      var buckets = [];
+      eachMonth(function (monthStart, monthEnd) {
+        buckets.push({
+          key: monthStart.getFullYear() + '-' + String(monthStart.getMonth() + 1),
+          year: monthStart.getFullYear(),
+          month: monthStart.getMonth(),
+          label: monthStart.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }),
+          start: monthStart,
+          end: monthEnd,
+          days: spanDays(monthStart, monthEnd)
+        });
+      });
+      return buckets;
+    }
+
+    /**
+     * Demand and capacity in FTE, per unit and per month, plus the totals.
+     * Only man-hour deliverables create demand: a monetary line buys an
+     * outcome, it does not occupy anyone.
+     */
+    function computeCapacity() {
+      var buckets = monthBuckets();
+      var tasks = getActiveTasks();
+      var units = {};
+
+      function slot(unit) {
+        if (!units[unit]) {
+          units[unit] = { unit: unit, months: {}, totalDemand: 0, totalCapacity: 0 };
+          buckets.forEach(function (b) { units[unit].months[b.key] = { demand: 0, capacity: 0 }; });
+        }
+        return units[unit];
+      }
+
+      tasks.forEach(function (t) {
+        if (t.currency === 'EUR' || !(t.mh > 0)) return;
+        var perDay = t.mh / spanDays(t.start, t.end);
+        var entry = slot(t.unit);
+        buckets.forEach(function (b) {
+          var overlap = overlapDays(t.start, t.end, b.start, b.end);
+          if (overlap <= 0) return;
+          var fte = (perDay * overlap) / HOURS_PER_FTE_MONTH;
+          entry.months[b.key].demand += fte;
+          entry.totalDemand += fte;
+        });
+      });
+
+      state.capacity.forEach(function (c) {
+        var entry = slot(c.unit);
+        buckets.forEach(function (b) {
+          var overlap = overlapDays(c.from, c.to, b.start, b.end);
+          if (overlap <= 0) return;
+          // A team present for half a month counts for half its headcount.
+          var fte = c.fte * (overlap / b.days);
+          entry.months[b.key].capacity += fte;
+          entry.totalCapacity += fte;
+        });
+      });
+
+      var rows = Object.keys(units).map(function (u) { return units[u]; })
+        .filter(function (r) { return r.totalDemand > 0.005 || r.totalCapacity > 0.005; })
+        .sort(function (a, b) { return a.unit.localeCompare(b.unit); });
+
+      var totals = {};
+      buckets.forEach(function (b) {
+        var t = { demand: 0, capacity: 0, shortFte: 0, shortUnits: [] };
+        rows.forEach(function (r) {
+          var cell = r.months[b.key];
+          t.demand += cell.demand;
+          t.capacity += cell.capacity;
+          // A shortfall in one unit is not covered by another unit's idle
+          // people, so deficits are summed rather than netted off.
+          if (cell.capacity > 0 && cell.demand > cell.capacity * 1.001) {
+            t.shortFte += cell.demand - cell.capacity;
+            t.shortUnits.push(r.unit);
+          }
+        });
+        totals[b.key] = t;
+      });
+
+      return { buckets: buckets, rows: rows, totals: totals };
+    }
+
+    /** Load ratio to colour: green under, amber near, red over capacity. */
+    function loadColor(demand, capacity) {
+      if (!(capacity > 0)) {
+        return demand > 0.005
+          ? { bg: '#f1f5f9', text: '#475569', label: 'no capacity declared' }
+          : { bg: 'transparent', text: '#94a3b8', label: '' };
+      }
+      var ratio = demand / capacity;
+      if (ratio <= 0.7) return { bg: '#dcfce7', text: '#166534', label: 'comfortable' };
+      if (ratio <= 0.95) return { bg: '#ecfccb', text: '#3f6212', label: 'well used' };
+      if (ratio <= 1.05) return { bg: '#fef9c3', text: '#854d0e', label: 'at capacity' };
+      if (ratio <= 1.3) return { bg: '#fed7aa', text: '#9a3412', label: 'over capacity' };
+      return { bg: '#fecaca', text: '#991b1b', label: 'heavily over capacity' };
+    }
+
+    /* ================================================================
      * Auto-refresh
      *
      * A timeout chain rather than an interval: the next poll is only armed
@@ -1364,6 +1589,11 @@
       source.gates.forEach(function (g) {
         parts.push(g.sheetName, g.rowNum, g.name, toISO(g.date), g.type);
       });
+      (source.capacity || []).forEach(function (c) {
+        parts.push(c.unit, toISO(c.from), toISO(c.to), c.fte);
+      });
+      var bl = source.baseline || { capturedAt: '', items: [] };
+      parts.push('#', bl.capturedAt, (bl.items || []).length);
       parts.push('|', source.stages.join('~'), source.yTracks.join('~'));
       return parts.join('\u0001');
     }
@@ -1379,7 +1609,7 @@
     }
 
     function isAnyModalOpen() {
-      return ['gsheet-modal', 'task-modal'].some(function (id) {
+      return ['gsheet-modal', 'task-modal', 'resolve-modal'].some(function (id) {
         var el = $(id);
         return el && !el.classList.contains('hidden');
       });
@@ -1794,13 +2024,34 @@
 
       var peakFte = monthlyData.reduce(function (max, d) { return Math.max(max, d.monthlyFTE); }, 0);
 
+      // With a capacity tab the highlight means something real - this month
+      // needs more people than the units have. Without one it falls back to
+      // flagging the busiest months.
+      var capacityByMonth = null;
+      if (hasCapacityData()) {
+        var cap = computeCapacity();
+        capacityByMonth = cap.totals;
+      }
+
       monthlyData.forEach(function (d) {
+        var key = d.label.getFullYear() + '-' + String(d.label.getMonth() + 1);
+        var totals = capacityByMonth ? capacityByMonth[key] : null;
+
+        // A month is over capacity when at least one unit is short, even if
+        // the plan balances once every unit is added together.
+        var over = totals
+          ? totals.shortUnits.length > 0
+          : (peakFte > 0 && d.monthlyFTE >= peakFte * 0.9);
+
         var block = document.createElement('div');
-        block.className = 'summary-block' + (peakFte > 0 && d.monthlyFTE >= peakFte * 0.9 ? ' over-capacity' : '');
+        block.className = 'summary-block' + (over ? ' over-capacity' : '');
         block.style.left = d.offsetX + 'px';
         block.style.width = d.widthPx + 'px';
         block.title = d.label.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) +
-          ': ' + formatNumber(d.monthMhTotal) + ' h, ' + d.monthlyFTE.toFixed(2) + ' FTE';
+          ': ' + formatNumber(d.monthMhTotal) + ' h, ' + d.monthlyFTE.toFixed(2) + ' FTE' +
+          (over && totals
+            ? ' — short ' + totals.shortFte.toFixed(2) + ' FTE in ' + totals.shortUnits.join(', ')
+            : (totals ? ' — every unit within capacity' : ''));
         if (d.widthPx >= 30) {
           block.innerHTML = '<span class="fte-tag">' + d.monthlyFTE.toFixed(2) + '</span>' +
             '<span class="mh-tag">' + formatNumber(d.monthMhTotal) + 'h</span>';
@@ -1816,6 +2067,13 @@
     }
 
     /** Monthly FTE curve drawn over the summary row of the header. */
+    /*
+     * Demand only. A capacity ceiling is deliberately not drawn here: summing
+     * headcount across units would both dwarf the curve and imply that one
+     * unit's idle people can absorb another's overload, which they cannot.
+     * Capacity is judged per unit, in the Capacity view and in the red month
+     * tags this curve sits under.
+     */
     function appendFteCurve(summaryRow, monthlyData, totalWidth) {
       if (!monthlyData.length) return;
 
@@ -2179,6 +2437,26 @@
       row.style.backgroundColor = palette.bg;
       row.dataset.trackId = trackId;
 
+      // Double-clicking empty space on a track starts a new deliverable there,
+      // on that track and on the day under the pointer.
+      row.addEventListener('dblclick', function (e) {
+        if (e.target !== row) return;
+        if (state.readOnly) {
+          showFloatingToast('Uncheck Read-Only to add a deliverable');
+          return;
+        }
+        var rect = row.getBoundingClientRect();
+        var startDate = addDays(state.minDate, Math.max(0, Math.round((e.clientX - rect.left) / state.dayWidth)));
+        openTaskModal(null, {
+          trackId: trackId,
+          stage: state.trackStageMap[trackId] || trackTasks[0].stage || '',
+          unit: trackTasks[0].unit,
+          start: startDate,
+          end: addDays(startDate, 9),
+          currency: 'MH'
+        });
+      });
+
       var label = document.createElement('div');
       label.className = 'track-label';
       var unitPalette = getUnitPalette(trackTasks[0].unit);
@@ -2190,6 +2468,14 @@
       // Sorted so each bar knows the free space on either side of it, which is
       // where its label may go without covering a neighbour.
       var ordered = trackTasks.slice().sort(function (a, b) { return a.start - b.start; });
+
+      if (state.showBaseline && state.baseline.items.length) {
+        ordered.forEach(function (task) {
+          var ghost = buildBaselineGhost(task);
+          if (ghost) row.appendChild(ghost);
+        });
+      }
+
       ordered.forEach(function (task, idx) {
         var built = buildTaskBar(task, collisions, densityRange, {
           prev: ordered[idx - 1] || null,
@@ -2209,7 +2495,8 @@
       var isZeroMh = !isEuro && !(task.mh > 0);
 
       var bar = document.createElement('div');
-      bar.className = 'task-bar' + (isCollided ? ' collision' : '') + (isZeroMh ? ' zero-mh' : '');
+      var grip = widthPx < 16 ? ' no-handles' : (widthPx < 30 ? ' narrow' : '');
+      bar.className = 'task-bar' + (isCollided ? ' collision' : '') + (isZeroMh ? ' zero-mh' : '') + grip;
       bar.style.left = dateToX(task.start) + 'px';
       bar.style.width = widthPx + 'px';
       bar.dataset.taskId = task.id;
@@ -2245,7 +2532,8 @@
       // resize handles, which only exist outside read-only mode.
       var titleWidth = measureText(titleText, TASK_FONT);
       var amountWidth = amountLabel ? measureText(amountLabel, AMOUNT_FONT) + 6 : 0;
-      var innerWidth = widthPx - 2 - 12 - (state.readOnly ? 0 : 16);
+      var handleWidth = state.readOnly ? 0 : (widthPx < 16 ? 0 : (widthPx < 30 ? 8 : 16));
+      var innerWidth = widthPx - 2 - 12 - handleWidth;
       var titleFits = titleWidth <= innerWidth;
       var amountFits = titleFits && amountLabel && (titleWidth + amountWidth) <= innerWidth;
 
@@ -2325,6 +2613,36 @@
       return label;
     }
 
+    /** The drift of one task against the baseline, or null when there is none. */
+    function taskDrift(task) {
+      var base = state.baselineIndex[task.rowNum];
+      if (!base) return null;
+      var startShift = daysBetween(base.start, task.start);
+      var endShift = daysBetween(base.end, task.end);
+      var amountShift = (task.amount || 0) - (base.amount || 0);
+      if (startShift === 0 && endShift === 0 && Math.abs(amountShift) < 0.005) return null;
+      return {
+        base: base,
+        startShift: startShift,
+        endShift: endShift,
+        amountShift: amountShift,
+        durationShift: spanDays(task.start, task.end) - spanDays(base.start, base.end)
+      };
+    }
+
+    function buildBaselineGhost(task) {
+      var drift = taskDrift(task);
+      if (!drift || (drift.startShift === 0 && drift.endShift === 0)) return null;
+      var ghost = document.createElement('div');
+      ghost.className = 'baseline-ghost ' + (drift.endShift > 0 ? 'late' : (drift.endShift < 0 ? 'early' : ''));
+      ghost.style.left = dateToX(drift.base.start) + 'px';
+      ghost.style.width = (spanDays(drift.base.start, drift.base.end) * state.dayWidth) + 'px';
+      ghost.title = 'Baseline: ' + toISO(drift.base.start) + ' to ' + toISO(drift.base.end) +
+        ' — now ' + (drift.endShift > 0 ? drift.endShift + ' day(s) later' :
+                     (drift.endShift < 0 ? Math.abs(drift.endShift) + ' day(s) earlier' : 'same end'));
+      return ghost;
+    }
+
     /**
      * Two deliverables on the same track whose date ranges overlap cannot both
      * be worked: flag them both.
@@ -2364,6 +2682,136 @@
       }
     }
 
+    /* ================================================================
+     * Collision resolver
+     *
+     * Two deliverables on one track overlapping means the same thread of work
+     * is booked twice. Resolving it is a forward-only cascade: walk the track
+     * in start order and push anything that starts before its predecessor
+     * ends, keeping every duration intact. Nothing ever moves earlier, so the
+     * proposal can never invent capacity that was not there.
+     * ================================================================ */
+
+    var resolvePlan = null;
+
+    function computeResolvePlan() {
+      var byTrack = {};
+      getActiveTasks().forEach(function (t) {
+        (byTrack[t.trackId] = byTrack[t.trackId] || []).push(t);
+      });
+
+      var moves = [];
+      Object.keys(byTrack).forEach(function (trackId) {
+        var ordered = byTrack[trackId].slice().sort(function (a, b) {
+          return (a.start - b.start) || (a.end - b.end);
+        });
+        var cursor = null;
+        ordered.forEach(function (task) {
+          var duration = spanDays(task.start, task.end);
+          var start = task.start;
+          if (cursor && toDayNum(start) <= toDayNum(cursor)) {
+            start = addDays(cursor, 1);
+          }
+          var end = addDays(start, duration - 1);
+          if (toISO(start) !== toISO(task.start)) {
+            moves.push({
+              task: task, trackId: trackId,
+              from: { start: task.start, end: task.end },
+              to: { start: start, end: end },
+              shift: daysBetween(task.start, start)
+            });
+          }
+          cursor = end;
+        });
+      });
+
+      moves.sort(function (a, b) { return b.shift - a.shift; });
+      return moves;
+    }
+
+    function openResolveModal() {
+      var collisions = detectCollisions(getActiveTasks());
+      resolvePlan = computeResolvePlan();
+      var body = $('resolve-modal-body');
+      var applyBtn = $('resolve-apply-btn');
+
+      if (!collisions.size) {
+        body.innerHTML = '<div class="text-center py-6 text-emerald-800 font-semibold">' +
+          'No overlap among the deliverables currently shown.</div>';
+        applyBtn.classList.add('hidden');
+      } else if (!resolvePlan.length) {
+        body.innerHTML = '<div class="text-center py-6 text-slate-600">' +
+          'The overlaps cannot be cleared by moving deliverables later on their own track. ' +
+          'They likely need a different track or a shorter duration.</div>';
+        applyBtn.classList.add('hidden');
+      } else {
+        var lastEnd = resolvePlan.reduce(function (acc, m) {
+          return Math.max(acc, daysBetween(m.from.end, m.to.end));
+        }, 0);
+        var html = '<p class="text-slate-600 leading-relaxed mb-3">' +
+          '<strong>' + collisions.size + '</strong> deliverables overlap on their track. ' +
+          'Pushing <strong>' + resolvePlan.length + '</strong> of them later clears every one of them, ' +
+          'keeping each duration unchanged. Nothing is moved earlier, and the whole change is a single undo.' +
+          (state.readOnly ? ' <span class="text-red-600 font-semibold">Uncheck Read-Only to apply it.</span>' : '') +
+          '</p>' +
+          '<div class="border border-slate-200 rounded-lg overflow-hidden">' +
+          '<table class="w-full border-collapse text-[11px]"><thead>' +
+            '<tr class="bg-slate-100 text-slate-700 font-bold text-[10px] uppercase tracking-wider">' +
+              '<th class="py-1.5 px-2 text-left">Deliverable</th><th class="py-1.5 px-2 text-left">Track</th>' +
+              '<th class="py-1.5 px-2 text-left">From</th><th class="py-1.5 px-2 text-left">To</th>' +
+              '<th class="py-1.5 px-2 text-right">Shift</th>' +
+            '</tr></thead><tbody class="divide-y divide-slate-100 bg-white">';
+        resolvePlan.forEach(function (m) {
+          html += '<tr>' +
+            '<td class="py-1.5 px-2 font-semibold text-slate-800">' + escapeHtml(m.task.title) + '</td>' +
+            '<td class="py-1.5 px-2 font-mono text-slate-500">' + escapeHtml(m.trackId) + '</td>' +
+            '<td class="py-1.5 px-2 font-mono text-slate-500">' + toISO(m.from.start) + ' → ' + toISO(m.from.end) + '</td>' +
+            '<td class="py-1.5 px-2 font-mono text-slate-800">' + toISO(m.to.start) + ' → ' + toISO(m.to.end) + '</td>' +
+            '<td class="py-1.5 px-2 text-right font-mono font-bold text-amber-700">+' + m.shift + ' d</td>' +
+          '</tr>';
+        });
+        html += '</tbody></table></div>' +
+          '<p class="text-[11px] text-slate-500 mt-3">The last deliverable of a track ends up to <strong>' +
+          lastEnd + ' day(s)</strong> later than today.</p>';
+        body.innerHTML = html;
+        applyBtn.classList.remove('hidden');
+        applyBtn.disabled = state.readOnly;
+      }
+      showModal('resolve-modal');
+    }
+
+    function closeResolveModal() {
+      hideModal('resolve-modal');
+    }
+
+    function applyResolvePlan() {
+      if (!resolvePlan || !resolvePlan.length) { closeResolveModal(); return; }
+      if (state.readOnly) {
+        showFloatingToast('Uncheck Read-Only to apply the reschedule');
+        return;
+      }
+      if (!ensureWritable()) return;
+
+      var before = resolvePlan.map(function (m) {
+        return { rowNum: m.task.rowNum, start: m.from.start, end: m.from.end };
+      });
+      var after = resolvePlan.map(function (m) {
+        return { rowNum: m.task.rowNum, start: m.to.start, end: m.to.end };
+      });
+
+      resolvePlan.forEach(function (m) {
+        m.task.start = m.to.start;
+        m.task.end = m.to.end;
+      });
+      pushHistory({ kind: 'batch', before: before, after: after });
+      closeResolveModal();
+      refreshAfterEdit();
+      syncBatchDatesToBackend(after.map(function (m) {
+        return { rowNum: m.rowNum, start: toISO(m.start), end: toISO(m.end) };
+      }), 'Overlaps resolved');
+      resolvePlan = null;
+    }
+
     function focusFirstCollision() {
       var first = document.querySelector('.task-bar.collision');
       if (!first) return;
@@ -2382,30 +2830,39 @@
     function attachDragAndResize(barEl, task) {
       var mode = null;
       var startX = 0;
+      var startY = 0;
       var initialLeft = 0;
       var initialWidth = 0;
       var previous = null;
       var pendingFrame = null;
       var lastEvent = null;
+      var dropTrackId = null;
+      // A press only becomes a drag once the pointer has really travelled.
+      // Below the threshold it stays a click, which keeps double-click working
+      // (the bar must remain the event target for both of its clicks) and stops
+      // a slightly shaky click from nudging a deliverable by a day.
+      var DRAG_THRESHOLD_PX = 4;
+      var dragActive = false;
 
       barEl.addEventListener('mousedown', function (e) {
         if (state.readOnly || e.button !== 0) return;
         e.stopPropagation();
         e.preventDefault();
 
-        if (e.target.classList.contains('left')) mode = 'resize-left';
-        else if (e.target.classList.contains('right')) mode = 'resize-right';
+        var hasHandles = !barEl.classList.contains('no-handles');
+        if (hasHandles && e.target.classList.contains('left')) mode = 'resize-left';
+        else if (hasHandles && e.target.classList.contains('right')) mode = 'resize-right';
         else mode = 'drag';
 
         startX = e.clientX;
+        startY = e.clientY;
         initialLeft = parseFloat(barEl.style.left) || 0;
         initialWidth = parseFloat(barEl.style.width) || state.dayWidth;
-        previous = { start: task.start, end: task.end };
+        previous = { start: task.start, end: task.end, trackId: task.trackId };
+        dropTrackId = task.trackId;
 
-        barEl.classList.add('dragging');
-        state.interacting = true;
+        dragActive = false;
         hideTooltip();
-        showDragHud(e, task, task.start, task.end);
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
       });
@@ -2422,6 +2879,18 @@
       }
 
       function applyDrag(e) {
+        if (!dragActive) {
+          if (Math.abs(e.clientX - startX) < DRAG_THRESHOLD_PX &&
+              Math.abs(e.clientY - startY) < DRAG_THRESHOLD_PX) return;
+          dragActive = true;
+          barEl.classList.add('dragging');
+          state.interacting = true;
+          // Only now may bars stop swallowing the pointer, otherwise the row
+          // underneath could never be identified while one follows the cursor.
+          if (mode === 'drag') document.body.classList.add('dragging-task');
+          showDragHud(e, task, task.start, task.end, task.trackId);
+        }
+
         // Snap the movement to whole days so bars land on grid boundaries.
         var deltaDays = Math.round((e.clientX - startX) / state.dayWidth);
         var initialDays = Math.max(1, Math.round(initialWidth / state.dayWidth));
@@ -2441,8 +2910,19 @@
         barEl.style.left = (offsetDays * state.dayWidth) + 'px';
         barEl.style.width = (durationDays * state.dayWidth) + 'px';
 
+        if (mode === 'drag') {
+          // Follow the pointer vertically too, and light up the row it is over.
+          barEl.style.transform = 'translateY(' + (e.clientY - startY) + 'px)';
+          var row = rowUnderPointer(e.clientX, e.clientY);
+          var newTrack = row ? row.dataset.trackId : null;
+          if (newTrack !== dropTrackId) {
+            highlightDropRow(row);
+            dropTrackId = newTrack || task.trackId;
+          }
+        }
+
         var newStart = addDays(state.minDate, offsetDays);
-        showDragHud(e, task, newStart, addDays(newStart, durationDays - 1));
+        showDragHud(e, task, newStart, addDays(newStart, durationDays - 1), dropTrackId);
       }
 
       function onMouseUp() {
@@ -2451,28 +2931,82 @@
           window.cancelAnimationFrame(pendingFrame);
           pendingFrame = null;
         }
+        var wasDragging = mode === 'drag';
+        var moved = dragActive;
         barEl.classList.remove('dragging');
+        barEl.style.transform = '';
+        document.body.classList.remove('dragging-task');
+        highlightDropRow(null);
         state.interacting = false;
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
         hideDragHud();
         mode = null;
+        dragActive = false;
+
+        // A press that never crossed the threshold is a click, not a move.
+        if (!moved) return;
 
         var offsetDays = Math.round((parseFloat(barEl.style.left) || 0) / state.dayWidth);
         var durationDays = Math.max(1, Math.round((parseFloat(barEl.style.width) || 0) / state.dayWidth));
         var newStart = addDays(state.minDate, offsetDays);
         var newEnd = addDays(newStart, durationDays - 1);
+        var newTrack = (wasDragging && dropTrackId) ? dropTrackId : previous.trackId;
 
-        if (toISO(newStart) === toISO(previous.start) && toISO(newEnd) === toISO(previous.end)) {
-          return; // nothing actually moved
-        }
+        var sameDates = toISO(newStart) === toISO(previous.start) && toISO(newEnd) === toISO(previous.end);
+        if (sameDates && newTrack === previous.trackId) return;
         if (!ensureWritable()) {
           renderPlanner();
           return;
         }
 
-        applyTaskDates(task, newStart, newEnd, previous);
+        if (newTrack !== previous.trackId) {
+          applyTaskMove(task, newStart, newEnd, newTrack, previous);
+        } else {
+          applyTaskDates(task, newStart, newEnd, previous);
+        }
       }
+    }
+
+    /** The track row under a screen point, or null when there is none. */
+    function rowUnderPointer(clientX, clientY) {
+      var el = document.elementFromPoint(clientX, clientY);
+      while (el && el !== document.body) {
+        if (el.classList && el.classList.contains('grid-row') && el.dataset.trackId) return el;
+        el = el.parentNode;
+      }
+      return null;
+    }
+
+    var highlightedRow = null;
+    function highlightDropRow(row) {
+      if (highlightedRow && highlightedRow !== row) highlightedRow.classList.remove('drop-target');
+      if (row) row.classList.add('drop-target');
+      highlightedRow = row;
+    }
+
+    /**
+     * Moves a deliverable to another track. The target track's stage wins,
+     * because the chart lays a track out under exactly one stage - so dropping
+     * a bar into another band really does re-stage it, and saying so is
+     * clearer than silently leaving a stage that no longer matches.
+     */
+    function applyTaskMove(task, newStart, newEnd, newTrackId, previous) {
+      var targetStage = state.trackStageMap[newTrackId];
+      if (!targetStage) {
+        var sibling = state.tasks.find(function (t) { return t.trackId === newTrackId && t !== task; });
+        targetStage = sibling ? sibling.stage : task.stage;
+      }
+
+      var before = { start: previous.start, end: previous.end, trackId: previous.trackId, stage: task.stage };
+      var after = { start: newStart, end: newEnd, trackId: newTrackId, stage: targetStage };
+
+      applyTaskPatch(task, after);
+      pushHistory({ kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: after });
+      refreshAfterEdit();
+      syncTaskFieldsToBackend(task, after);
+      showFloatingToast('Moved to track ' + newTrackId +
+        (targetStage && targetStage !== before.stage ? ' (stage: ' + targetStage + ')' : ''));
     }
 
     /** Commits a date change, records it for undo and pushes it to the sheet. */
@@ -2492,16 +3026,18 @@
       syncTaskChangeToBackend(task);
     }
 
-    function showDragHud(e, task, start, end) {
+    function showDragHud(e, task, start, end, trackId) {
       var hud = $('drag-hud');
       if (!hud) return;
+      var moved = trackId && trackId !== task.trackId;
       hud.style.display = 'block';
       hud.style.left = e.clientX + 'px';
       hud.style.top = e.clientY + 'px';
       hud.innerHTML = '<div style="font-size:10px;opacity:.7;text-transform:uppercase;">' +
           escapeHtml(task.title) + '</div>' +
         '<div>' + toISO(start) + '  to  ' + toISO(end) +
-        ' <span style="color:#93c5fd">(' + spanDays(start, end) + ' d)</span></div>';
+        ' <span style="color:#93c5fd">(' + spanDays(start, end) + ' d)</span></div>' +
+        (moved ? '<div style="color:#34d399">→ track ' + escapeHtml(trackId) + '</div>' : '');
     }
 
     function hideDragHud() {
@@ -2758,8 +3294,44 @@
         var detailTask = findTask(entry.taskId, entry.rowNum);
         if (!detailTask) return;
         var snapshot = reverse ? entry.before : entry.after;
-        Object.keys(snapshot).forEach(function (key) { detailTask[key] = snapshot[key]; });
-        syncTaskDetailsToBackend(detailTask);
+        applyTaskPatch(detailTask, snapshot);
+        syncTaskFieldsToBackend(detailTask, snapshot);
+      } else if (entry.kind === 'remove') {
+        // Undoing a removal puts the task back and re-dates its parked row.
+        if (reverse) {
+          entry.task.start = entry.dates.start;
+          entry.task.end = entry.dates.end;
+          if (!findTask(entry.taskId, entry.rowNum)) state.tasks.push(entry.task);
+          syncTaskRestoreToBackend(entry.task);
+        } else {
+          state.tasks = state.tasks.filter(function (t) { return t.rowNum !== entry.rowNum; });
+          syncTaskRemovalToBackend(entry.task);
+        }
+      } else if (entry.kind === 'create') {
+        // A created row is never deleted, only parked, so undo mirrors 'remove'.
+        var created = findTask(entry.taskId, entry.rowNum);
+        if (reverse && created) {
+          entry.task = created;
+          entry.dates = { start: created.start, end: created.end };
+          state.tasks = state.tasks.filter(function (t) { return t !== created; });
+          syncTaskRemovalToBackend(created);
+        } else if (!reverse && entry.task) {
+          entry.task.start = entry.dates.start;
+          entry.task.end = entry.dates.end;
+          state.tasks.push(entry.task);
+          syncTaskRestoreToBackend(entry.task);
+        }
+      } else if (entry.kind === 'batch') {
+        var moves = reverse ? entry.before : entry.after;
+        moves.forEach(function (m) {
+          var task = findTask(null, m.rowNum);
+          if (!task) return;
+          task.start = m.start;
+          task.end = m.end;
+        });
+        syncBatchDatesToBackend(moves.map(function (m) {
+          return { rowNum: m.rowNum, start: toISO(m.start), end: toISO(m.end) };
+        }), reverse ? 'Reschedule undone' : 'Reschedule redone');
       }
 
       calculateDateBounds();
@@ -2770,7 +3342,7 @@
 
     function findTask(taskId, rowNum) {
       for (var i = 0; i < state.tasks.length; i++) {
-        if (state.tasks[i].id === taskId || state.tasks[i].rowNum === rowNum) return state.tasks[i];
+        if ((taskId && state.tasks[i].id === taskId) || state.tasks[i].rowNum === rowNum) return state.tasks[i];
       }
       return null;
     }
@@ -2797,18 +3369,60 @@
         });
     }
 
-    function syncTaskDetailsToBackend(task) {
+
+    function syncTaskFieldsToBackend(task, form) {
       updateStatus('Saving deliverable…', 'syncing');
-      callBackend('updateTaskDetails',
-        [task.rowNum, task.title, task.trackId, task.stage, toISO(task.start), toISO(task.end), task.comment, state.connectedSheetId],
+      callBackend('updateTaskFields', [task.rowNum, {
+        title: form.title, trackId: form.trackId, stage: form.stage,
+        start: toISO(form.start), end: toISO(form.end), comment: form.comment,
+        unit: form.unit, currency: form.currency === 'EUR' ? 'EUR' : '', amount: form.amount
+      }, state.connectedSheetId],
         function () {
           updateStatus('Connected', 'connected');
           showFloatingToast('Deliverable saved', 'success');
         },
         function (err) {
           updateStatus('Save failed', 'error');
-          console.error('updateTaskDetails failed:', err);
+          console.error('updateTaskFields failed:', err);
           showFloatingToast('Could not save the deliverable to the sheet.', 'error');
+        });
+    }
+
+    function syncTaskRemovalToBackend(task) {
+      updateStatus('Removing…', 'syncing');
+      callBackend('deleteTask', [task.rowNum, state.connectedSheetId],
+        function () { updateStatus('Connected', 'connected'); },
+        function (err) {
+          updateStatus('Remove failed', 'error');
+          console.error('deleteTask failed:', err);
+          showFloatingToast('Could not park the row in the sheet.', 'error');
+        });
+    }
+
+    /** Restores a parked row by writing its dates back. */
+    function syncTaskRestoreToBackend(task) {
+      updateStatus('Restoring…', 'syncing');
+      callBackend('updateTaskFields', [task.rowNum,
+        { start: toISO(task.start), end: toISO(task.end) }, state.connectedSheetId],
+        function () { updateStatus('Connected', 'connected'); },
+        function (err) {
+          updateStatus('Restore failed', 'error');
+          console.error('restore failed:', err);
+        });
+    }
+
+    function syncBatchDatesToBackend(updates, label) {
+      updateStatus('Rescheduling…', 'syncing');
+      callBackend('updateTaskDatesBatch', [updates, state.connectedSheetId],
+        function (res) {
+          updateStatus('Connected', 'connected');
+          showFloatingToast((label || 'Rescheduled') + ' — ' + ((res && res.count) || updates.length) +
+            ' deliverable(s) moved', 'success');
+        },
+        function (err) {
+          updateStatus('Reschedule failed', 'error');
+          console.error('updateTaskDatesBatch failed:', err);
+          showFloatingToast('The reschedule could not be written back to the sheet.', 'error');
         });
     }
 
@@ -2918,6 +3532,13 @@
       state.showTrackLabels = !!checked;
       document.body.classList.toggle('show-track-labels', state.showTrackLabels);
       storageSet('show_track_labels', state.showTrackLabels ? '1' : '0');
+    }
+
+    function toggleBaselineVisible(checked) {
+      state.showBaseline = !!checked;
+      document.body.classList.toggle('show-baseline', state.showBaseline);
+      storageSet('show_baseline', state.showBaseline ? '1' : '0');
+      if (state.minDate) renderTasksAndTracks();
     }
 
     function toggleGatesVisible(checked) {
@@ -3065,29 +3686,91 @@
 
     var editingTask = null;
 
-    function openTaskModal(task) {
+    /**
+     * Opens the editor. With no task it creates one instead, pre-filled from
+     * `defaults` - which is how a double-click on empty space in a row lands a
+     * new deliverable on that track, starting on the day that was clicked.
+     */
+    function openTaskModal(task, defaults) {
       if (state.readOnly) {
         showFloatingToast('Uncheck Read-Only to edit a deliverable');
         return;
       }
       if (!ensureWritable()) return;
 
-      editingTask = task;
-      $('task-title-input').value = task.title;
-      $('task-track-input').value = task.trackId;
-      $('task-stage-input').value = task.stage;
-      $('task-start-input').value = toISO(task.start);
-      $('task-end-input').value = toISO(task.end);
-      $('task-comment-input').value = task.comment;
-      $('task-modal-meta').innerHTML = 'Sheet row <strong>' + task.rowNum + '</strong> · ' +
-        'Unit <strong>' + escapeHtml(task.unit) + '</strong> · ' +
-        (task.currency === 'EUR'
-          ? 'Budget <strong>EUR ' + formatNumber(task.amount) + '</strong>'
-          : 'Effort <strong>' + formatNumber(task.amount) + ' Mh</strong>') +
-        '<br/><span class="text-slate-400">Amount, unit and currency are edited in the sheet itself.</span>';
+      var creating = !task;
+      editingTask = task || null;
+      var base = task || defaults || {};
+
+      populateTrackPicker(base.trackId);
+      populateUnitOptions();
+
+      $('task-modal-title').innerText = creating ? 'New deliverable' : 'Edit deliverable';
+      $('task-save-btn').innerText = creating ? 'Add to sheet' : 'Save to sheet';
+      $('task-delete-btn').classList.toggle('hidden', creating);
+
+      $('task-title-input').value = base.title || '';
+      $('task-track-input').value = base.trackId || '';
+      $('task-stage-input').value = base.stage || '';
+      $('task-start-input').value = base.start ? toISO(base.start) : '';
+      $('task-end-input').value = base.end ? toISO(base.end) : '';
+      $('task-comment-input').value = base.comment || '';
+      $('task-amount-input').value = base.amount === undefined ? '' : base.amount;
+      $('task-currency-input').value = base.currency === 'EUR' ? 'EUR' : 'MH';
+      $('task-unit-input').value = base.unit || '';
+
+      $('task-modal-meta').innerHTML = creating
+        ? 'The deliverable is appended to the bottom of the <strong>plan</strong> tab. ' +
+          'Leave the stage blank to inherit it from the track.'
+        : 'Sheet row <strong>' + base.rowNum + '</strong>. ' +
+          '&ldquo;Remove from chart&rdquo; blanks the dates only: the row, its title and its ' +
+          'amount stay in the sheet and it can be brought back by setting dates again.';
+
       $('task-modal-error').classList.add('hidden');
       showModal('task-modal');
       $('task-title-input').focus();
+    }
+
+    /** Offers the existing tracks so a deliverable can be moved without typing. */
+    function populateTrackPicker(current) {
+      var picker = $('task-track-list');
+      if (!picker) return;
+      var options = ['<option value="">— pick an existing track —</option>'];
+      state.yTracks.slice().sort().forEach(function (trackId) {
+        options.push('<option value="' + escapeHtml(trackId) + '"' +
+          (trackId === current ? ' selected' : '') + '>' + escapeHtml(trackId) + '</option>');
+      });
+      picker.innerHTML = options.join('');
+    }
+
+    /** Copies a track picked from the list into the editable track field. */
+    function pickExistingTrack(trackId) {
+      if (!trackId) return;
+      var input = $('task-track-input');
+      if (input) input.value = trackId;
+    }
+
+    function populateUnitOptions() {
+      var list = $('unit-options');
+      if (!list) return;
+      list.innerHTML = state.units.map(function (u) {
+        return '<option value="' + escapeHtml(u) + '"></option>';
+      }).join('');
+    }
+
+    /** Starts a blank deliverable, defaulted to today on the first free track. */
+    function openNewTaskModal() {
+      var start = today();
+      if (state.minDate && start < state.minDate) start = new Date(state.minDate);
+      openTaskModal(null, {
+        trackId: '',
+        stage: state.stages.length ? state.stages[0] : '',
+        unit: state.units.length ? state.units[0] : '',
+        start: start,
+        end: addDays(start, 9),
+        currency: 'MH',
+        amount: 0
+      });
     }
 
     function closeTaskModal() {
@@ -3095,46 +3778,133 @@
       hideModal('task-modal');
     }
 
-    function saveTaskModal() {
-      if (!editingTask) return;
-      var errEl = $('task-modal-error');
+    /** Reads and validates the form. Returns null and shows why when invalid. */
+    function readTaskModal() {
       var title = $('task-title-input').value.trim();
       var trackId = $('task-track-input').value.trim();
       var stage = $('task-stage-input').value.trim();
       var start = parseDateValue($('task-start-input').value);
       var end = parseDateValue($('task-end-input').value);
       var comment = $('task-comment-input').value.trim();
+      var unit = $('task-unit-input').value.trim() || 'Unassigned';
+      var currency = $('task-currency-input').value === 'EUR' ? 'EUR' : 'MH';
+      var rawAmount = $('task-amount-input').value.trim();
+      var amount = rawAmount === '' ? 0 : Number(rawAmount);
 
-      if (!title) { showTaskModalError('A title is required.'); return; }
-      if (!trackId) { showTaskModalError('A track is required.'); return; }
-      if (!start || !end) { showTaskModalError('Both dates must be valid.'); return; }
-      if (end < start) { showTaskModalError('The end date cannot precede the start date.'); return; }
-      if (errEl) errEl.classList.add('hidden');
+      if (!title) { showTaskModalError('A title is required.'); return null; }
+      if (!trackId) { showTaskModalError('A track is required.'); return null; }
+      if (!start || !end) { showTaskModalError('Both dates must be valid.'); return null; }
+      if (end < start) { showTaskModalError('The end date cannot precede the start date.'); return null; }
+      if (!isFinite(amount) || amount < 0) { showTaskModalError('The amount must be a positive number.'); return null; }
 
-      var task = editingTask;
-      var before = {
-        title: task.title, trackId: task.trackId, stage: task.stage,
-        start: task.start, end: task.end, comment: task.comment
+      $('task-modal-error').classList.add('hidden');
+      return {
+        title: title, trackId: trackId, stage: stage, start: start, end: end,
+        comment: comment, unit: unit, currency: currency, amount: amount
       };
-      var after = { title: title, trackId: trackId, stage: stage, start: start, end: end, comment: comment };
+    }
 
-      var changed = Object.keys(after).some(function (key) {
-        return (after[key] instanceof Date)
-          ? toISO(after[key]) !== toISO(before[key])
-          : after[key] !== before[key];
-      });
+    function saveTaskModal() {
+      var form = readTaskModal();
+      if (!form) return;
+      if (editingTask) {
+        applyTaskEdit(editingTask, form);
+      } else {
+        createTaskFromForm(form);
+      }
       closeTaskModal();
+    }
+
+    function applyTaskEdit(task, form) {
+      var keys = ['title', 'trackId', 'stage', 'start', 'end', 'comment', 'unit', 'currency', 'amount'];
+      var before = {};
+      keys.forEach(function (k) { before[k] = task[k]; });
+
+      var changed = keys.some(function (k) {
+        return (form[k] instanceof Date) ? toISO(form[k]) !== toISO(before[k]) : form[k] !== before[k];
+      });
       if (!changed) return;
 
-      Object.keys(after).forEach(function (key) { task[key] = after[key]; });
-      if (state.yTracks.indexOf(trackId) === -1) state.yTracks.push(trackId);
-      state.trackStageMap[trackId] = stage;
+      applyTaskPatch(task, form);
+      pushHistory({ kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: form });
+      refreshAfterEdit();
+      syncTaskFieldsToBackend(task, form);
+    }
 
-      pushHistory({ kind: 'details', taskId: task.id, rowNum: task.rowNum, before: before, after: after });
+    /** Writes a field patch onto a task and keeps the derived state in step. */
+    function applyTaskPatch(task, patch) {
+      Object.keys(patch).forEach(function (k) { task[k] = patch[k]; });
+      task.mh = task.currency === 'EUR' ? 0 : task.amount;
+      if (state.yTracks.indexOf(task.trackId) === -1) state.yTracks.push(task.trackId);
+      if (task.stage) state.trackStageMap[task.trackId] = task.stage;
+      if (state.units.indexOf(task.unit) === -1) {
+        state.units.push(task.unit);
+        state.selectedUnits.add(task.unit);
+        renderUnitChips();
+      }
+    }
+
+    function refreshAfterEdit() {
       calculateDateBounds();
       renderPlanner();
       if (state.summaryPanelOpen) renderSummaryPanel();
-      syncTaskDetailsToBackend(task);
+    }
+
+    function createTaskFromForm(form) {
+      updateStatus('Adding deliverable…', 'syncing');
+      callBackend('addTask', [{
+        title: form.title, trackId: form.trackId, stage: form.stage,
+        start: toISO(form.start), end: toISO(form.end), comment: form.comment,
+        unit: form.unit, currency: form.currency === 'EUR' ? 'EUR' : '', amount: form.amount
+      }, state.connectedSheetId],
+        function (res) {
+          updateStatus('Connected', 'connected');
+          // The sheet decides the row number, and that number is the task's
+          // identity from now on, so the task is only created once it is known.
+          var rowNum = (res && res.rowNum) || 0;
+          if (!rowNum) {
+            showFloatingToast('Added to the sheet — reload to see it.', 'success');
+            return;
+          }
+          var task = {
+            rowNum: rowNum, id: 'task_' + rowNum, trackId: form.trackId, stage: form.stage,
+            unit: form.unit, title: form.title, amount: form.amount, currency: form.currency,
+            mh: form.currency === 'EUR' ? 0 : form.amount, start: form.start, end: form.end,
+            comment: form.comment
+          };
+          state.tasks.push(task);
+          applyTaskPatch(task, {});
+          pushHistory({ kind: 'create', taskId: task.id, rowNum: rowNum });
+          refreshAfterEdit();
+          showFloatingToast('“' + form.title + '” added', 'success');
+        },
+        function (err) {
+          updateStatus('Add failed', 'error');
+          console.error('addTask failed:', err);
+          showFloatingToast('Could not add the deliverable: ' + (err && err.message ? err.message : err), 'error');
+        });
+    }
+
+    /**
+     * Soft delete: the sheet row survives with its dates blanked, so nothing
+     * is lost and no row number shifts under the other open clients.
+     */
+    function deleteTaskFromModal() {
+      var task = editingTask;
+      if (!task) return;
+      closeTaskModal();
+      removeTaskFromChart(task, true);
+    }
+
+    function removeTaskFromChart(task, record) {
+      var snapshot = { start: task.start, end: task.end };
+      state.tasks = state.tasks.filter(function (t) { return t !== task; });
+      if (record) {
+        pushHistory({ kind: 'remove', taskId: task.id, rowNum: task.rowNum, task: task, dates: snapshot });
+      }
+      refreshAfterEdit();
+      syncTaskRemovalToBackend(task);
+      showFloatingToast('“' + task.title + '” removed from the chart — its row is kept in the sheet');
     }
 
     function showTaskModalError(msg) {
@@ -3172,7 +3942,9 @@
     function setSummaryViewMode(mode) {
       state.summaryViewMode = mode;
       storageSet('summary_view_mode', mode);
-      var buttons = { units: 'view-mode-units', stages: 'view-mode-stages', detailed: 'view-mode-detailed' };
+      var buttons = { units: 'view-mode-units', stages: 'view-mode-stages',
+                      detailed: 'view-mode-detailed', capacity: 'view-mode-capacity',
+                      drift: 'view-mode-drift' };
       Object.keys(buttons).forEach(function (key) {
         var btn = $(buttons[key]);
         if (!btn) return;
@@ -3312,6 +4084,16 @@
     function renderSummaryPanel() {
       var container = $('summary-panel-content');
       if (!container) return;
+
+      if (state.summaryViewMode === 'capacity') {
+        container.innerHTML = renderCapacityView();
+        return;
+      }
+      if (state.summaryViewMode === 'drift') {
+        container.innerHTML = renderDriftView();
+        wireBaselineButtons();
+        return;
+      }
 
       var summary = computeSummary();
       state.lastSummary = summary;
@@ -3567,6 +4349,306 @@
       downloadCsv('gantt-summary-' + toISO(today()) + '.csv', toCsv(rows));
     }
 
+    /**
+     * Unit x month load table. Each cell shows the demand in FTE against the
+     * declared capacity, coloured by how hard the unit is being pushed, so a
+     * hiring gap or an idle team is visible at a glance rather than inferred.
+     */
+    function renderCapacityView() {
+      if (!hasCapacityData()) {
+        return '<div class="border border-slate-300 rounded-xl bg-white p-6 text-center">' +
+          '<div class="text-2xl mb-2">👥</div>' +
+          '<div class="text-sm font-bold text-slate-700 mb-1">No capacity declared</div>' +
+          '<div class="text-xs text-slate-500 max-w-lg mx-auto leading-relaxed">' +
+            'Add a <strong>capacity</strong> tab to the sheet with four columns — ' +
+            '<strong>Unit</strong>, <strong>From</strong>, <strong>To</strong>, <strong>FTE</strong> — ' +
+            'one row per period during which a unit has a given headcount. Rows for the same unit add up, ' +
+            'so a baseline team plus a temporary reinforcement is two rows. The chart will then show which ' +
+            'months need more people than you have.' +
+          '</div></div>';
+      }
+
+      var cap = computeCapacity();
+      var buckets = cap.buckets;
+      var overMonths = buckets.filter(function (b) { return cap.totals[b.key].shortUnits.length > 0; });
+      var worst = buckets.reduce(function (acc, b) {
+        var t = cap.totals[b.key];
+        return t.shortFte > acc.gap ? { gap: t.shortFte, bucket: b } : acc;
+      }, { gap: 0, bucket: null });
+
+      var html = '<div class="bg-gradient-to-r from-slate-50 to-red-50/40 border border-slate-200 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm">' +
+        '<div class="flex items-center gap-8">' +
+          '<div><div class="text-[10px] font-black uppercase tracking-wider text-slate-500">Months over capacity</div>' +
+            '<div class="text-2xl font-black ' + (overMonths.length ? 'text-red-700' : 'text-emerald-700') + ' leading-tight">' +
+              overMonths.length + ' <span class="text-xs font-bold text-slate-500">of ' + buckets.length + '</span></div></div>';
+      if (worst.bucket) {
+        html += '<div class="pl-8 border-l border-slate-200">' +
+          '<div class="text-[10px] font-black uppercase tracking-wider text-slate-500">Largest shortfall</div>' +
+          '<div class="text-2xl font-black text-red-700 leading-tight">' + escapeHtml(worst.bucket.label) +
+            ' <span class="text-xs font-bold text-slate-500">short ' + worst.gap.toFixed(2) + ' FTE (' +
+            formatNumber(worst.gap * HOURS_PER_FTE_MONTH) + ' Mh)</span></div></div>';
+      }
+      html += '</div><div class="text-right text-[11px] text-slate-600 font-semibold">' +
+          '<div class="text-[10px] uppercase font-bold text-slate-400">Demand vs declared headcount</div>' +
+          '<div class="text-base font-black text-slate-800 tracking-tight">' + cap.rows.length + ' units</div>' +
+        '</div></div>';
+
+      html += '<div class="border border-slate-300 rounded-xl bg-white shadow-sm overflow-x-auto w-full">' +
+        '<table class="summary-table w-full text-left border-collapse"><thead>' +
+          '<tr class="bg-slate-100 text-slate-800 font-black text-xs border-b border-slate-300">' +
+            '<th class="py-2.5 px-3 border-r border-slate-300 sticky left-0 bg-slate-100 z-20 min-w-[180px] uppercase tracking-wider text-[10px]">Unit</th>';
+      buckets.forEach(function (b) {
+        html += '<th class="py-2 px-2 text-center border-r border-slate-300 min-w-[64px] font-mono text-[10px] text-slate-700">' +
+          escapeHtml(b.label) + '</th>';
+      });
+      html += '<th class="py-2.5 px-3 text-right bg-indigo-100/70 text-indigo-950 min-w-[120px] font-mono text-[10px] uppercase tracking-wider">Total</th>' +
+        '</tr></thead><tbody class="divide-y divide-slate-200 font-semibold">';
+
+      cap.rows.forEach(function (row) {
+        var palette = getUnitPalette(row.unit);
+        html += '<tr class="hover:bg-slate-50 transition-colors group">' +
+          '<td class="py-2 px-3 border-r border-slate-200 sticky left-0 bg-white group-hover:bg-slate-50 z-10">' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="w-3 h-3 rounded-full inline-block shrink-0" style="background-color:' + palette.dot + '"></span>' +
+              '<span class="font-bold text-slate-900 text-xs truncate">' + escapeHtml(row.unit) + '</span>' +
+            '</div></td>';
+        buckets.forEach(function (b) {
+          var cell = row.months[b.key];
+          var tone = loadColor(cell.demand, cell.capacity);
+          var body = '<span class="text-[9px] text-slate-400">-</span>';
+          if (cell.demand > 0.005 || cell.capacity > 0.005) {
+            body = '<div class="leading-tight"><div class="font-bold text-[11px]">' + cell.demand.toFixed(1) + '</div>' +
+              '<div class="text-[9px] opacity-75">/ ' + cell.capacity.toFixed(1) + '</div></div>';
+          }
+          var gap = cell.demand - cell.capacity;
+          html += '<td class="py-1.5 px-2 text-center border-r border-slate-200 font-mono" ' +
+            'style="background-color:' + tone.bg + ';color:' + tone.text + '" ' +
+            'title="' + escapeHtml(row.unit + ' — ' + b.label + ': needs ' + cell.demand.toFixed(2) +
+              ' FTE, has ' + cell.capacity.toFixed(2) + ' FTE' +
+              (tone.label ? ' (' + tone.label + ')' : '') +
+              (gap > 0.005 && cell.capacity > 0 ? ', short ' + gap.toFixed(2) + ' FTE' : '')) + '">' +
+            body + '</td>';
+        });
+        var avgDemand = row.totalDemand / buckets.length;
+        var avgCapacity = row.totalCapacity / buckets.length;
+        var totalTone = loadColor(avgDemand, avgCapacity);
+        html += '<td class="py-2 px-3 text-right font-mono bg-indigo-50/50" style="color:' + totalTone.text + '">' +
+          '<div class="leading-tight"><div class="font-black text-xs">' + avgDemand.toFixed(2) + ' FTE</div>' +
+          '<div class="text-[9px] text-slate-500">avg / ' + avgCapacity.toFixed(2) + '</div></div></td></tr>';
+      });
+
+      html += '</tbody><tfoot><tr class="bg-slate-200/90 text-slate-900 font-black text-xs border-t-2 border-slate-400">' +
+        '<td class="py-2.5 px-3 uppercase tracking-wider text-[11px] border-r border-slate-300 sticky left-0 bg-slate-200 z-10">All units</td>';
+      buckets.forEach(function (b) {
+        var t = cap.totals[b.key];
+        // Coloured by whether any unit is short, not by the netted total,
+        // which would paint an unstaffable month as merely "at capacity".
+        var tone = t.shortUnits.length
+          ? loadColor(t.capacity + t.shortFte, t.capacity)
+          : loadColor(t.demand, t.capacity);
+        html += '<td class="py-2 px-2 text-center font-mono border-r border-slate-300" ' +
+          'style="background-color:' + tone.bg + ';color:' + tone.text + '" ' +
+          'title="' + escapeHtml(b.label + ': ' + t.demand.toFixed(2) + ' FTE needed, ' +
+            t.capacity.toFixed(2) + ' FTE available' +
+            (t.shortUnits.length ? ' — short ' + t.shortFte.toFixed(2) + ' FTE in ' + t.shortUnits.join(', ') : '')) + '">' +
+          '<div class="leading-tight"><div class="text-[11px]">' + t.demand.toFixed(1) + '</div>' +
+          '<div class="text-[9px] opacity-75">/ ' + t.capacity.toFixed(1) + '</div></div></td>';
+      });
+      html += '<td class="py-2.5 px-3 text-right bg-indigo-200/80 text-indigo-950 font-mono text-xs">—</td>' +
+        '</tr></tfoot></table></div>';
+
+      html += '<div class="flex items-center gap-4 flex-wrap text-[11px] text-slate-600 px-1">' +
+        '<span class="font-bold uppercase tracking-wider text-[10px] text-slate-500">Load:</span>';
+      [['#dcfce7', '#166534', 'up to 70%'], ['#ecfccb', '#3f6212', '70-95%'], ['#fef9c3', '#854d0e', 'at capacity'],
+       ['#fed7aa', '#9a3412', 'up to 130%'], ['#fecaca', '#991b1b', 'beyond']].forEach(function (t) {
+        html += '<span class="flex items-center gap-1.5"><span class="w-4 h-3 rounded-sm inline-block border border-slate-300" ' +
+          'style="background-color:' + t[0] + '"></span><span style="color:' + t[1] + '">' + t[2] + '</span></span>';
+      });
+      html += '<span class="text-slate-400">Each cell reads demand / capacity, in FTE for that month.</span></div>';
+      return html;
+    }
+
+    /**
+     * What has moved since the plan was committed. Without a baseline there is
+     * nothing to compare against, so the view offers to capture one.
+     */
+    function renderDriftView() {
+      var captureBar =
+        '<div class="flex items-center justify-between gap-3 border border-slate-300 rounded-xl bg-white px-4 py-3 shadow-sm">' +
+          '<div class="text-xs text-slate-600">' +
+            (state.baseline.capturedAt
+              ? 'Baseline captured on <strong class="text-slate-900">' + escapeHtml(state.baseline.capturedAt) +
+                '</strong> — ' + state.baseline.items.length + ' deliverables frozen.'
+              : 'No baseline yet. Capturing one freezes today\u2019s dates and amounts in a ' +
+                '<strong>baseline</strong> tab so every later change can be measured against it.') +
+          '</div>' +
+          '<div class="flex gap-2 shrink-0">' +
+            '<button id="capture-baseline-btn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold text-xs transition-colors">' +
+              (state.baseline.capturedAt ? 'Re-capture' : 'Capture baseline') + '</button>' +
+            (state.baseline.capturedAt
+              ? '<button id="clear-baseline-btn" class="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg font-semibold text-xs transition-colors">Clear</button>'
+              : '') +
+          '</div></div>';
+
+      if (!state.baseline.items.length) return captureBar;
+
+      var tasks = getActiveTasks();
+      var drifted = [];
+      var onTrack = 0;
+      var newSinceBaseline = 0;
+      var totalAmountShift = 0;
+      var worstSlip = 0;
+
+      tasks.forEach(function (t) {
+        if (!state.baselineIndex[t.rowNum]) { newSinceBaseline++; return; }
+        var d = taskDrift(t);
+        if (!d) { onTrack++; return; }
+        totalAmountShift += d.amountShift;
+        worstSlip = Math.max(worstSlip, d.endShift);
+        drifted.push({ task: t, drift: d });
+      });
+
+      // Deliverables present at capture time that no longer appear.
+      var liveRows = {};
+      tasks.forEach(function (t) { liveRows[t.rowNum] = true; });
+      var dropped = state.baseline.items.filter(function (b) { return !liveRows[b.rowNum]; });
+
+      drifted.sort(function (a, b) { return b.drift.endShift - a.drift.endShift; });
+
+      var html = captureBar +
+        '<div class="grid grid-cols-4 gap-3">' +
+          driftTile('Moved', drifted.length, drifted.length ? 'text-amber-700' : 'text-emerald-700', 'deliverables whose dates or amount changed') +
+          driftTile('On plan', onTrack, 'text-emerald-700', 'unchanged since the baseline') +
+          driftTile('Worst slip', (worstSlip > 0 ? '+' + worstSlip : worstSlip) + ' d', worstSlip > 0 ? 'text-red-700' : 'text-emerald-700', 'largest end-date slip') +
+          driftTile('Effort delta', (totalAmountShift >= 0 ? '+' : '') + formatNumber(totalAmountShift),
+                    totalAmountShift > 0 ? 'text-red-700' : (totalAmountShift < 0 ? 'text-emerald-700' : 'text-slate-700'),
+                    'sum of amount changes, Mh and EUR combined') +
+        '</div>';
+
+      if (newSinceBaseline || dropped.length) {
+        html += '<div class="flex gap-3 text-[11px]">' +
+          (newSinceBaseline ? '<span class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-200 font-semibold">' +
+            newSinceBaseline + ' added since the baseline</span>' : '') +
+          (dropped.length ? '<span class="px-2 py-1 rounded bg-slate-100 text-slate-700 border border-slate-300 font-semibold">' +
+            dropped.length + ' no longer on the chart</span>' : '') +
+          '</div>';
+      }
+
+      if (!drifted.length) {
+        return html + '<div class="border border-emerald-200 rounded-xl bg-emerald-50/30 p-6 text-center text-xs text-emerald-900 font-semibold">' +
+          'Every deliverable still sits where the baseline put it.</div>';
+      }
+
+      html += '<div class="border border-slate-300 rounded-xl bg-white shadow-sm overflow-x-auto w-full">' +
+        '<table class="summary-table w-full text-left border-collapse text-xs"><thead>' +
+          '<tr class="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[10px] uppercase tracking-wider">' +
+            '<th class="py-2.5 px-3 border-r border-slate-300 min-w-[240px]">Deliverable</th>' +
+            '<th class="py-2.5 px-3 border-r border-slate-300">Track</th>' +
+            '<th class="py-2.5 px-3 border-r border-slate-300">Baseline</th>' +
+            '<th class="py-2.5 px-3 border-r border-slate-300">Now</th>' +
+            '<th class="py-2.5 px-3 text-right border-r border-slate-300">Start</th>' +
+            '<th class="py-2.5 px-3 text-right border-r border-slate-300">End</th>' +
+            '<th class="py-2.5 px-3 text-right border-r border-slate-300">Duration</th>' +
+            '<th class="py-2.5 px-3 text-right">Amount</th>' +
+          '</tr></thead><tbody class="divide-y divide-slate-200 font-medium">';
+
+      drifted.forEach(function (row) {
+        var t = row.task;
+        var d = row.drift;
+        html += '<tr class="hover:bg-slate-50 transition-colors">' +
+          '<td class="py-1.5 px-3 border-r border-slate-200 font-bold text-slate-800">' + escapeHtml(t.title) + '</td>' +
+          '<td class="py-1.5 px-3 border-r border-slate-200 font-mono text-[11px] text-slate-500">' + escapeHtml(t.trackId) + '</td>' +
+          '<td class="py-1.5 px-3 border-r border-slate-200 font-mono text-[10px] text-slate-500">' +
+            toISO(d.base.start) + ' → ' + toISO(d.base.end) + '</td>' +
+          '<td class="py-1.5 px-3 border-r border-slate-200 font-mono text-[10px] text-slate-800">' +
+            toISO(t.start) + ' → ' + toISO(t.end) + '</td>' +
+          driftCell(d.startShift, 'd') +
+          driftCell(d.endShift, 'd') +
+          driftCell(d.durationShift, 'd') +
+          driftCell(d.amountShift, t.currency === 'EUR' ? 'EUR' : 'Mh') +
+        '</tr>';
+      });
+
+      html += '</tbody></table></div>';
+
+      if (dropped.length) {
+        html += '<div class="border border-slate-200 rounded-xl bg-slate-50/60 p-4">' +
+          '<div class="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">No longer on the chart</div>' +
+          '<div class="flex flex-wrap gap-1.5">';
+        dropped.forEach(function (b) {
+          html += '<span class="text-[11px] px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-600">' +
+            escapeHtml(b.title || ('row ' + b.rowNum)) + '</span>';
+        });
+        html += '</div><div class="text-[10px] text-slate-400 mt-2">Either removed from the chart, or hidden by the current filters.</div></div>';
+      }
+      return html;
+    }
+
+    function driftTile(label, value, colorClass, hint) {
+      return '<div class="border border-slate-200 rounded-xl bg-white px-3 py-2.5 shadow-sm" title="' + escapeHtml(hint) + '">' +
+        '<div class="text-[10px] font-black uppercase tracking-wider text-slate-500">' + escapeHtml(label) + '</div>' +
+        '<div class="text-xl font-black ' + colorClass + ' leading-tight">' + escapeHtml(String(value)) + '</div></div>';
+    }
+
+    function driftCell(value, unit) {
+      if (Math.abs(value) < 0.005) {
+        return '<td class="py-1.5 px-3 text-right border-r border-slate-200 text-slate-300 font-mono">–</td>';
+      }
+      var late = value > 0;
+      return '<td class="py-1.5 px-3 text-right border-r border-slate-200 font-mono font-bold ' +
+        (late ? 'text-red-700' : 'text-emerald-700') + '">' +
+        (late ? '+' : '') + formatNumber(value) + ' ' + unit + '</td>';
+    }
+
+    function wireBaselineButtons() {
+      var capture = $('capture-baseline-btn');
+      if (capture) capture.onclick = captureBaseline;
+      var clear = $('clear-baseline-btn');
+      if (clear) clear.onclick = clearBaselineNow;
+    }
+
+    function captureBaseline() {
+      if (!ensureWritable()) return;
+      updateStatus('Capturing baseline…', 'syncing');
+      callBackend('saveBaseline', [state.connectedSheetId],
+        function (res) {
+          updateStatus('Connected', 'connected');
+          // Freeze what is on screen rather than waiting for a reload, so the
+          // drift table is immediately consistent with the chart.
+          var items = state.tasks.map(function (t) {
+            return { rowNum: t.rowNum, trackId: t.trackId, title: t.title,
+                     start: t.start, end: t.end, amount: t.amount };
+          });
+          state.baseline = { capturedAt: (res && res.capturedAt) || toISO(today()), items: items };
+          state.baselineIndex = {};
+          items.forEach(function (b) { state.baselineIndex[b.rowNum] = b; });
+          renderTasksAndTracks();
+          renderSummaryPanel();
+          showFloatingToast('Baseline captured — ' + items.length + ' deliverables frozen', 'success');
+        },
+        function (err) {
+          updateStatus('Capture failed', 'error');
+          console.error('saveBaseline failed:', err);
+          showFloatingToast('Could not write the baseline tab.', 'error');
+        });
+    }
+
+    function clearBaselineNow() {
+      if (!ensureWritable()) return;
+      callBackend('clearBaseline', [state.connectedSheetId],
+        function () {
+          state.baseline = { capturedAt: '', items: [] };
+          state.baselineIndex = {};
+          renderTasksAndTracks();
+          renderSummaryPanel();
+          showFloatingToast('Baseline cleared');
+        },
+        function (err) {
+          console.error('clearBaseline failed:', err);
+          showFloatingToast('Could not clear the baseline tab.', 'error');
+        });
+    }
+
     /** Exports the deliverables currently passing the filters, one row each. */
     function exportPlanCsv() {
       var tasks = getActiveTasks().slice().sort(function (a, b) {
@@ -3643,6 +4725,7 @@
       state.showZeroMh = storageGet('show_zero_mh', '0') === '1';
       state.showTrackLabels = storageGet('show_track_labels', '1') === '1';
       state.showGates = storageGet('show_gates', '1') === '1';
+      state.showBaseline = storageGet('show_baseline', '1') === '1';
       state.readOnly = storageGet('read_only', '1') === '1';
       state.summaryViewMode = storageGet('summary_view_mode', 'units');
       var seconds = parseInt(storageGet('auto_refresh_seconds', '0'), 10);
@@ -3663,6 +4746,10 @@
       var gatesToggle = $('gates-toggle');
       if (gatesToggle) gatesToggle.checked = state.showGates;
       document.body.classList.toggle('hide-gates', !state.showGates);
+
+      var baselineToggle = $('baseline-toggle');
+      if (baselineToggle) baselineToggle.checked = state.showBaseline;
+      document.body.classList.toggle('show-baseline', state.showBaseline);
 
       var readOnlyToggle = $('readonly-toggle');
       if (readOnlyToggle) readOnlyToggle.checked = state.readOnly;
@@ -3721,6 +4808,7 @@
         if (e.key === 'Escape') {
           closeGSheetModal();
           closeTaskModal();
+          closeResolveModal();
           toggleSummaryPanel(false);
           toggleWheelMenu(false);
           toggleViewMenu(false);
@@ -3743,6 +4831,9 @@
           if (input) input.focus();
         } else if (e.key === 't' || e.key === 'T') {
           scrollToToday();
+        } else if (e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          openNewTaskModal();
         }
       });
 
@@ -3777,6 +4868,7 @@
     window.toggleZeroMh = toggleZeroMh;
     window.toggleTrackLabels = toggleTrackLabels;
     window.toggleGatesVisible = toggleGatesVisible;
+    window.toggleBaselineVisible = toggleBaselineVisible;
     window.toggleReadOnly = toggleReadOnly;
     window.toggleWheelMenu = toggleWheelMenu;
     window.toggleViewMenu = toggleViewMenu;
@@ -3796,11 +4888,17 @@
     window.connectSheetFromModal = connectSheetFromModal;
     window.disconnectSheet = disconnectSheet;
     window.openTaskModal = openTaskModal;
+    window.openNewTaskModal = openNewTaskModal;
+    window.pickExistingTrack = pickExistingTrack;
     window.closeTaskModal = closeTaskModal;
     window.saveTaskModal = saveTaskModal;
+    window.deleteTaskFromModal = deleteTaskFromModal;
     window.undoLastChange = undoLastChange;
     window.redoLastChange = redoLastChange;
     window.focusFirstCollision = focusFirstCollision;
+    window.openResolveModal = openResolveModal;
+    window.closeResolveModal = closeResolveModal;
+    window.applyResolvePlan = applyResolvePlan;
 
     /* ================================================================
      * Boot

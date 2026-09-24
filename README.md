@@ -12,7 +12,9 @@ Deliverables Gantt planner and scheduler, driven by a Google Sheet.
 ## Setup
 
 1. Create an Apps Script project containing `code.gs` and an HTML file named `index`.
-2. Deploy it as a web app.
+2. Deploy it as a web app. Choose **Execute as: the user accessing the web app** so
+   Google enforces each person's real rights on the sheet — the in-app Read-Only
+   switch is a convenience, not an access control.
 3. Build your data sheet from `Template/timeliner-planner-template.xlsx` — see
    [`Template/README.md`](Template/README.md) for the schema.
 4. Open the web app and paste the sheet URL into the **Connect** dialog.

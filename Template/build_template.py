@@ -69,6 +69,24 @@ PLAN = [
     ("D-026", "Post-launch marketing kit",           "TRK-20", STAGES[4],    150, "N/A",        "N/A",         "Dates not fixed: ignored until both are set","A. Martin","Not started", "",    "Program"),
 ]
 
+# Unit, from, to, FTE. Rows for one unit add up, so a reinforcement is one
+# extra row rather than a rewrite of the baseline team.
+CAPACITY = [
+    # Sized against the sample plan's own monthly demand: every unit is
+    # comfortable for most of the programme, while Software and Mechanical are
+    # deliberately half an FTE short of their busiest months. The colour scale
+    # therefore means something the first time the tab is opened, without
+    # implying the sample plan is broken.
+    ("Program",     D(2026,1,1),  D(2027,12,31), 2.5),
+    ("Systems",     D(2026,1,1),  D(2027,12,31), 2.5),
+    ("Mechanical",  D(2026,1,1),  D(2027,12,31), 2.5),
+    ("Electronics", D(2026,1,1),  D(2027,12,31), 1.5),
+    ("Software",    D(2026,1,1),  D(2027,12,31), 1.5),
+    ("Software",    D(2026,6,1),  D(2027,12,31), 0.5),   # contractor, added mid-2026
+    ("Quality",     D(2026,1,1),  D(2027,12,31), 1.5),
+    ("Purchasing",  D(2026,1,1),  D(2027,12,31), 1.0),
+]
+
 GATES = {
     "gates-system": [("SR1 - Concept freeze", D(2026,4,15)), ("SR2 - Design freeze", D(2026,10,15)),
                      ("SR3 - Industrialisation gate", D(2027,3,15)), ("SR4 - Production release", D(2027,10,15))],
@@ -146,6 +164,8 @@ tabs = [
     ("gates-system", "Yes, row 1", "A = gate name, B = date, from row 2. Drawn as a red dashed line."),
     ("gates-hc", "Yes, row 1", "Same shape. Drawn as a purple dashed line with an H/C badge."),
     ("mg-hc", "Yes, row 1", "Same shape. Drawn as an orange dotted line with an H/C badge."),
+    ("capacity", "Yes, row 1", "OPTIONAL. A = unit, B = from, C = to, D = FTE. How many people a unit has over a period; rows for one unit add up. Drives the over-capacity warnings and the Capacity view."),
+    ("baseline", "Written by the tool", "OPTIONAL. Filled in when you press \u201cCapture baseline\u201d. Freezes the plan so the Drift view can show what moved since."),
 ]
 for name, hdr, desc in tabs:
     put(f"B{r}", name, bold=True)
@@ -202,7 +222,9 @@ notes = [
     "Effort is spread evenly over the days of a deliverable, which is how the monthly FTE curve and the yearly summary are built.",
     "Conversion used by the tool: 1580 h/year = 1 FTE (131.7 h/month). This is a fixed convention in the code, not a cell you can change here.",
     "Columns can be moved if you rename the header: the planner recognises, among others, Title/Titre, Track/ID, Stage/Phase, Amount/Montant, Start/Debut, End/Fin, Currency/Devise, Unit/Departement. Leave the layout as-is and you never have to think about it.",
-    "Adding extra tabs is safe - only the five named tabs are read.",
+    "Adding extra tabs is safe - only the named tabs are read.",
+    "The planner can edit the plan tab back: drag a bar sideways to reschedule it, drag it onto another track to move it there, double-click an empty spot on a track to create a deliverable, and use the editor to change the title, track, stage, dates, amount, currency, unit and comment.",
+    "Removing a deliverable from the chart only blanks its two date cells (they become N/A). The row, its title and its amount stay in the sheet, and setting dates again brings it straight back.",
 ]
 for text in notes:
     put(f"B{r}", "-", bold=True)
@@ -406,6 +428,64 @@ for tab, entries in GATES.items():
     n.font = Font(name=FONT, size=10, italic=True, color=MUTED)
     n.alignment = Alignment(vertical="top", wrap_text=True)
     ws.merge_cells(start_row=2, start_column=4, end_row=5, end_column=4)
+
+# ---------------------------------------------------------------- capacity ---
+cap = wb.create_sheet("capacity")
+for i, (h, w) in enumerate(zip(["Unit", "From", "To", "FTE"], [22, 14, 14, 10]), start=1):
+    cap.cell(row=1, column=i, value=h)
+    cap.column_dimensions[get_column_letter(i)].width = w
+cap.column_dimensions["F"].width = 70
+style_header(cap, 1, 4)
+cap.freeze_panes = "A2"
+for ri, (unit, start, end, fte) in enumerate(CAPACITY, start=2):
+    for ci, value in enumerate((unit, start, end, fte), start=1):
+        cell = cap.cell(row=ri, column=ci, value=value)
+        cell.font = Font(name=FONT, size=10, color=INK)
+        cell.border = BOX
+        cell.fill = PatternFill("solid", fgColor=INPUT_BG)
+        if ci in (2, 3):
+            cell.number_format = "yyyy-mm-dd"
+            cell.alignment = Alignment(horizontal="center")
+        if ci == 4:
+            cell.number_format = "0.0"
+            cell.alignment = Alignment(horizontal="right")
+for ri in range(2 + len(CAPACITY), 2 + len(CAPACITY) + 12):
+    for ci in range(1, 5):
+        cell = cap.cell(row=ri, column=ci)
+        cell.border = BOX
+        cell.fill = PatternFill("solid", fgColor=INPUT_BG)
+        cell.font = Font(name=FONT, size=10)
+        if ci in (2, 3):
+            cell.number_format = "yyyy-mm-dd"
+cap_note = cap.cell(row=2, column=6,
+    value="OPTIONAL TAB. How many people each unit actually has, as periods rather than a month grid: "
+          "a ramp-up is one row, not twelve. Rows for the same unit ADD UP - see Mechanical, which gets "
+          "half an extra FTE from mid-2026, a contractor. The planner compares this with the effort your "
+          "plan demands and flags the months where a unit is short. Delete the tab and the feature simply "
+          "switches off. Only man-hour deliverables create demand: a line in EUR buys an outcome, it does "
+          "not occupy anyone.")
+cap_note.font = Font(name=FONT, size=10, italic=True, color=MUTED)
+cap_note.alignment = Alignment(vertical="top", wrap_text=True)
+cap.merge_cells(start_row=2, start_column=6, end_row=9, end_column=6)
+
+# ---------------------------------------------------------------- baseline ---
+base = wb.create_sheet("baseline")
+base_headers = ["Plan row", "Track", "Title", "Start", "End", "Amount", "Captured at"]
+for i, (h, w) in enumerate(zip(base_headers, [10, 12, 40, 12, 12, 12, 13]), start=1):
+    base.cell(row=1, column=i, value=h)
+    base.column_dimensions[get_column_letter(i)].width = w
+base.column_dimensions["I"].width = 70
+style_header(base, 1, len(base_headers))
+base.freeze_panes = "A2"
+base_note = base.cell(row=2, column=9,
+    value="OPTIONAL TAB, WRITTEN BY THE TOOL - do not fill it in by hand. Press \u201cCapture baseline\u201d in "
+          "the planner's Drift view and today's dates and amounts are frozen here. From then on every bar "
+          "shows a hollow ghost where it used to sit, and the Drift view lists what slipped, by how many "
+          "days, and how much effort was added or removed. Re-capturing overwrites it; clearing empties it. "
+          "Leave the tab out entirely and the planner just creates it when you first capture.")
+base_note.font = Font(name=FONT, size=10, italic=True, color=MUTED)
+base_note.alignment = Alignment(vertical="top", wrap_text=True)
+base.merge_cells(start_row=2, start_column=9, end_row=9, end_column=9)
 
 wb.save(OUT)
 print("written:", OUT)

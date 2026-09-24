@@ -9,7 +9,9 @@ la section « Ce qui n'a pas changé » en fin de document.
 
 Le document couvre les deux séries de modifications : la reprise initiale, puis les
 retours qui ont suivi (débordement des libellés, rafraîchissement automatique,
-correction du FTE). Les ajouts de la seconde série sont signalés par **[v2]**.
+correction du FTE), puis l'édition complète depuis le Gantt et trois fonctionnalités
+d'analyse. Les ajouts de la seconde série sont signalés par **[v2]**, ceux de la
+troisième par **[v3]**.
 
 ---
 
@@ -81,6 +83,18 @@ correction du FTE). Les ajouts de la seconde série sont signalés par **[v2]**.
 - **Écritures non validées.** `updateTaskDates`, `updateGateDate` et
   `updateTaskDetails` écrivaient à l'indice de ligne reçu sans contrôle.
   → Le numéro de ligne est validé et la ligne d'en-tête est refusée.
+
+- **[v3] Une barre étroite ne pouvait pas être déplacée.** Sous environ 16 px, les
+  deux poignées de redimensionnement occupaient toute la largeur : impossible de
+  l'attraper pour la déplacer, donc impossible de changer sa track. Les poignées se
+  réduisent maintenant avec la barre et disparaissent en dessous de 16 px, la barre
+  entière devenant alors une zone de déplacement.
+- **[v3] Le double-clic sur une barre ouvrait l'éditeur en mode création.** Le
+  `pointer-events: none` posé dès l'appui — nécessaire pour identifier la ligne
+  survolée pendant un déplacement — faisait atterrir le second clic sur la ligne au
+  lieu de la barre. Un appui ne devient un déplacement qu'au-delà de 4 px, ce qui
+  rétablit le double-clic et évite aussi qu'un clic un peu tremblant décale un
+  livrable d'une journée.
 
 - **[v2] Les filtres d'unités se réarmaient tout seuls.** Décocher toutes les
   unités puis rafraîchir les recochait toutes : la sélection vide était
@@ -180,6 +194,68 @@ Ajouts de la seconde série :
 - **[v2] Export CSV du plan** : les livrables actuellement affichés, avec durée,
   effort, densité et équivalent FTE.
 
+### Édition complète depuis le Gantt **[v3]**
+
+- **Changement de track au glisser-déposer.** Une barre se déplace désormais aussi
+  verticalement : la ligne survolée est mise en évidence, l'indicateur annonce la
+  track cible, et la durée est conservée. Le stage de la track d'arrivée s'applique,
+  puisqu'une track vit sous un seul stage — le dire explicitement vaut mieux que de
+  laisser un stage qui ne correspond plus.
+- **Création** par le bouton « ＋ New », par la touche `N`, ou par un double-clic sur
+  un emplacement libre d'une track : le livrable est pré-rempli sur cette track et
+  au jour cliqué. La ligne est ajoutée en bas de l'onglet `plan`, et c'est la feuille
+  qui décide du numéro de ligne, lequel devient l'identité du livrable.
+- **Suppression douce.** « Remove from chart » ne vide que les deux cellules de date
+  (elles passent à `N/A`). La ligne, son titre et son montant restent dans la
+  feuille, rien n'est perdu, et aucun numéro de ligne ne se décale sous les sessions
+  ouvertes des autres. Annulable, et réversible en remettant des dates.
+- **Montant, devise et unité éditables** dans l'éditeur, en plus du titre, de la
+  track, du stage, des dates et du commentaire. Un sélecteur propose les tracks
+  existantes pour déplacer sans risque de faute de frappe.
+- Côté backend : `updateTaskFields` (écriture d'un jeu de champs quelconque en une
+  seule plage), `addTask`, `deleteTask` et `updateTaskDatesBatch`. `updateTaskDetails`
+  est conservée et devient une façade sur `updateTaskFields`.
+
+### Capacité et surcharge **[v3]**
+
+- Nouvel onglet optionnel **`capacity`** : l'effectif réel de chaque unité, exprimé
+  en périodes plutôt qu'en grille mensuelle — une montée en charge tient en une ligne
+  au lieu de douze. Les lignes d'une même unité s'additionnent.
+- Nouvelle vue **Capacity** : matrice unité × mois, chaque cellule affichant la
+  demande sur la capacité, colorée selon le taux de charge, avec le déficit chiffré
+  en FTE et en Mh.
+- Le bandeau mensuel signale en rouge les mois non tenables, et l'infobulle nomme les
+  unités en déficit.
+- **Le déficit se calcule par unité et ne se compense jamais entre unités.** Une
+  personne disponible aux Achats ne remplace pas un ingénieur manquant au Logiciel :
+  les déficits se somment au lieu de s'annuler. Un mois est en surcharge dès qu'une
+  unité est courte, même si le programme s'équilibre une fois toutes les unités
+  additionnées. Pour la même raison, la courbe mensuelle n'affiche que la demande :
+  une ligne de plafond globale sous-entendrait une interchangeabilité inexistante.
+- Seuls les livrables en Mh créent de la demande ; une ligne en EUR achète un
+  résultat, elle n'occupe personne.
+
+### Référence et dérive **[v3]**
+
+- Nouvel onglet **`baseline`**, écrit par l'outil : « Capture baseline » fige les
+  dates et les montants du jour.
+- Chaque barre ayant bougé affiche ensuite un **fantôme creux** à sa position de
+  référence, rouge si elle a glissé, vert si elle a avancé.
+- Nouvelle vue **Drift** : nombre de livrables déplacés, restés au plan, plus grand
+  glissement, delta d'effort, puis le détail ligne par ligne avec l'écart en jours
+  sur le début, la fin, la durée et le montant. Signale aussi les livrables ajoutés
+  depuis la référence et ceux qui ont quitté le graphique.
+
+### Résolution des collisions **[v3]**
+
+- Le badge de collisions ouvre un **aperçu** : cascade vers l'avant uniquement, qui
+  décale ce qui chevauche en conservant chaque durée. Rien ne recule, donc la
+  proposition ne peut pas inventer de la capacité qui n'existait pas.
+- L'aperçu liste chaque déplacement avec son ampleur et le report final de chaque
+  track, avant toute écriture.
+- L'application se fait en **une seule écriture groupée** et s'annule en un seul
+  `Ctrl+Z`.
+
 ## 4. Template (nouveau dossier `Template/`)
 
 - `timeliner-planner-template.xlsx` : classeur de référence avec les cinq onglets
@@ -234,6 +310,18 @@ Ce qui a été testé :
 - **[v2] Exports CSV** : téléchargements réellement capturés dans le navigateur,
   en-têtes et totaux contrôlés, respect des filtres actifs, et vérification que la
   colonne FTE utilise bien 1580.
+- **[v3] 22 tests backend supplémentaires** : écriture de champs multiples en une
+  plage, champs omis laissés intacts, montants au format européen, ajout et refus
+  d'un ajout sans dates, suppression douce réversible, écriture groupée, lecture de
+  la capacité (lignes invalides écartées, intervalles cumulés), capture et relecture
+  de la référence, et non-contamination de la référence par les modifications
+  ultérieures.
+- **[v3] Tests navigateur** : édition du montant/devise/unité, création, validation
+  des saisies, suppression douce et son annulation, glissement vertical avec mise en
+  évidence de la ligne cible et héritage du stage, non-régression du glissement
+  purement horizontal, fantômes de référence tracés uniquement pour ce qui a bougé,
+  table de dérive, aperçu puis application de la cascade de collisions en une
+  écriture groupée annulable, et arithmétique de capacité vérifiée au FTE près.
 - **36 tests unitaires backend** contre un simulacre de l'API Apps Script :
   analyse des dates sous tous les formats, résolution des colonnes, feuille
   étroite, permutation des dates inversées, aller-retour lecture/écriture,
